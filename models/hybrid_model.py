@@ -44,14 +44,18 @@ class HybridModel(nn.Module):
         self.encoder_name = encoder_name
         self.mask_ratio = cfg.mask_ratio
         self.patch_size = cfg.patch_size
+        encoder_dim = getattr(self.encoder, "embed_dim", None)
+        if encoder_dim is None:
+            encoder_dim = getattr(self.encoder, "out_dim")
+
         self.projector = Projector(
-            in_dim=getattr(self.encoder, "embed_dim", getattr(self.encoder, "out_dim")),
+            in_dim=encoder_dim,
             hidden_dim=max(cfg.projector_dim, 128),
             out_dim=cfg.projector_dim,
             num_layers=cfg.projector_layers,
         )
         self.decoder = MAEDecoder(
-            encoder_dim=getattr(self.encoder, "embed_dim", getattr(self.encoder, "out_dim")),
+            encoder_dim=encoder_dim,
             patch_size=self.patch_size,
         )
         self.info_nce = InfoNCELoss(cfg.temp)
