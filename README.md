@@ -54,7 +54,7 @@ python train.py --config configs/tiny_imagenet_vit_small.yaml
 
 4. Launch the Google Colab workflow:
 
-Open `scripts/run_colab.ipynb` and follow the cells to install requirements, download Tiny-ImageNet, run pretraining, perform linear probing, and visualize reconstructions/t-SNE. The notebook includes guidance on mounting Google Drive for checkpoint persistence.
+Open `scripts/run_colab.ipynb` and follow the guided cells. See the dedicated section below for a quick overview of the exact steps.
 
 5. Evaluate with a linear probe (e.g., CIFAR-10):
 
@@ -140,6 +140,50 @@ python train.py --config configs/imagenet100_vitb.yaml
 ## Logging & Visualization
 
 The training loop logs losses, learning rate, alpha(t), and reconstruction samples to TensorBoard. Optional Weights & Biases logging can be enabled via `--wandb` or config flags. Visualization utilities save reconstructions, t-SNE/UMAP projections, and attention maps to `runs/<experiment>/figs/`.
+
+## Running on Google Colab
+
+1. **Create a new notebook** and switch the runtime to **GPU** (`Runtime -> Change runtime type -> GPU`).
+2. **Clone the repository** (or pull from your own fork) and install dependencies:
+
+   ```python
+   !git clone https://github.com/<your-username>/hybrid_ssl.git
+   %cd hybrid_ssl
+   !pip install -U pip
+   !pip install -e .
+   ```
+
+   If you prefer mounting Google Drive, insert the standard Drive mounting cell (`from google.colab import drive; drive.mount('/content/drive')`) before cloning so checkpoints can be saved persistently.
+
+3. **Download Tiny-ImageNet** (default Colab example) using the provided helper:
+
+   ```python
+   !python data/prepare_tiny_imagenet.py --out ./data/tiny-imagenet-200
+   ```
+
+4. **Run joint pretraining** with the Tiny-ImageNet configuration:
+
+   ```python
+   !python train.py --config configs/tiny_imagenet_vit_small.yaml --logging.out_dir runs/colab_tiny
+   ```
+
+   The config uses mixed precision (`amp: true`) which fits within the default Colab GPU memory budget. Reduce `train.batch_size` in the YAML if you encounter OOM errors.
+
+5. **Launch the linear probe** once pretraining finishes:
+
+   ```python
+   !python eval_linear.py --config configs/linear_probe_cifar10.yaml --checkpoint.encoder_ckpt checkpoints/tiny_vits_last.pt
+   ```
+
+   Adjust the checkpoint path to the artifact saved during your pretraining run (the notebook highlights the exact filename).
+
+6. **Use the visualization utility** to export reconstructions and embedding plots:
+
+   ```python
+   !python visualize.py --config configs/tiny_imagenet_vit_small.yaml --checkpoint checkpoints/tiny_vits_last.pt --output runs/colab_tiny/figs
+   ```
+
+7. For a fully scripted experience, simply run the cells in `scripts/run_colab.ipynb`; they mirror the commands above and add optional extras such as TensorBoard-in-Colab integration.
 
 ## License
 
