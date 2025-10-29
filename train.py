@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Dict
 
 import torch
@@ -34,6 +35,7 @@ def to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str,
 def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
+    experiment_name = cfg.get("experiment") or Path(args.config).stem
 
     seed_cfg = SeedConfig(seed=cfg.get("seed", 42), deterministic=args.deterministic)
     seed_everything(seed_cfg)
@@ -176,13 +178,15 @@ def main() -> None:
         checkpoint_path = log_dir / f"epoch_{epoch:03d}.pt"
         save_checkpoint(
             {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scaler": scaler.state_dict(),
-                "epoch": epoch,
-                "config": cfg,
+                "train/epoch_loss": avg_loss,
+                "train/epoch_alpha": alpha,
             },
-            checkpoint_path,
+            step=epoch,
+        )
+        print(
+            f"[Epoch {epoch + 1}/{epochs}] loss_total={avg_loss:.4f} "
+            f"alpha={alpha:.4f} lr={current_lr:.4e}",
+            flush=True,
         )
         if avg_loss < best_loss:
             best_loss = avg_loss
@@ -196,6 +200,15 @@ def main() -> None:
                 },
                 log_dir / "best.pt",
             )
+
+    final_checkpoint = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scaler": scaler.state_dict(),
+        "epoch": epochs - 1,
+        "config": cfg,
+    }
+    save_checkpoint(final_checkpoint, log_dir / f"{experiment_name}.pt")
 
     # Save alpha schedule plot
     try:
