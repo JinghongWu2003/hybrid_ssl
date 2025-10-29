@@ -1,0 +1,31 @@
+experiment: "hybrid_tiny_vits"
+dataset:
+  name: "tiny_imagenet"
+  root: "./data/tiny-imagenet-200"
+  img_size: 64
+  num_classes: 200
+model:
+  encoder: "vit_small"
+  patch_size: 8
+  mask_ratio: 0.75
+  projector_dim: 128
+  projector_layers: 2
+  temp: 0.2
+loss:
+  alpha_schedule: "cosine"
+  alpha_final: 0.6
+  alpha_warmup_epochs: 10
+optim:
+  lr: 2e-4
+  weight_decay: 0.05
+train:
+  epochs: 100
+  batch_size: 128
+  amp: true
+  grad_clip: 1.0
+  grad_balance: false
+  num_workers: 8
+logging:
+  out_dir: "runs/tiny_vits"
+  tensorboard: true
+  wandb: false

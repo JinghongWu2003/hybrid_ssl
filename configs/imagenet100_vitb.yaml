@@ -1,0 +1,32 @@
+experiment: "hybrid_in100_vitb"
+dataset:
+  name: "imagenet100"
+  root: "/data/imagenet100"
+  img_size: 224
+  num_classes: 100
+model:
+  encoder: "vit_base"
+  patch_size: 16
+  mask_ratio: 0.75
+  projector_dim: 256
+  projector_layers: 2
+  temp: 0.2
+loss:
+  alpha_schedule: "cosine"
+  alpha_final: 0.5
+  alpha_warmup_epochs: 20
+optim:
+  lr: 1.5e-4
+  weight_decay: 0.05
+  betas: [0.9, 0.95]
+train:
+  epochs: 120
+  batch_size: 128
+  amp: true
+  grad_clip: 1.0
+  grad_balance: false
+  num_workers: 8
+logging:
+  out_dir: "runs/in100_vitb"
+  tensorboard: true
+  wandb: false

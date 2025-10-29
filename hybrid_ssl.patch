@@ -1,0 +1,2678 @@
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000000000000000000000000000000000000..f4e174ce472a218e98dac1527b410f75ecf918c7
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2024 Hybrid SSL Authors
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/README.MD b/README.MD
+deleted file mode 100644
+index e3f143c3f4ccfdc4afaecd136d12a8a15e73cef4..0000000000000000000000000000000000000000
+--- a/README.MD
++++ /dev/null
+@@ -1 +0,0 @@
+-wulala
+\ No newline at end of file
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a33a90afd9c4fd57c1851ee1e0f9c541c8195ff0
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,146 @@
++# Hybrid MAE + SimCLR Self-Supervised Learning
++
++```
++            +----------------+
++            |   Encoder      |
++            +--------+-------+
++                     |
++        +------------+------------+
++        |                         |
++  +-----v-----+             +-----v-----+
++  | SimCLR    |             |   MAE      |
++  | Projector |             |  Decoder   |
++  +-----+-----+             +-----+-----+
++        |                         |
++   InfoNCE Loss             Reconstruction Loss
++        \____________________  __________________/
++                             \/
++                       Dynamic Alpha
++                             |
++                      Downstream Tasks
++                       (Linear Probe / FT)
++```
++
++Hybrid SSL is a production-ready PyTorch framework that jointly trains a masked autoencoder (MAE) decoder and a SimCLR-style contrastive projector on top of a shared encoder. The objective combines reconstruction and contrastive losses with a dynamic alpha schedule, enabling robust pretraining on mid-scale datasets like ImageNet-100 and smaller benchmarks such as Tiny-ImageNet or STL-10. Downstream evaluation utilities include linear probing and fine-tuning for CIFAR-10/100, Flowers102, Caltech-101, and Galaxy10-DECALS.
++
++## Key Features
++
++* Shared transformer or convolutional encoders with dual MAE and SimCLR heads.
++* Dynamic alpha weighting that smoothly transitions from reconstruction-focused warmup to balanced contrastive learning.
++* Comprehensive dataset datamodules with strong augmentations for self-supervision and evaluation.
++* AMP-ready, single-GPU friendly training loops with optional distributed support and mixed precision.
++* Modular utilities for seeding, logging (TensorBoard & WandB), checkpointing, and gradient balancing.
++* Ready-to-run configs, scripts, tests, and a Colab notebook for reproducible experiments.
++
++## Quickstart
++
++1. Clone the repository and install dependencies:
++
++```bash
++pip install -e .
++```
++
++2. (Optional) Prepare Tiny-ImageNet locally:
++
++```bash
++python data/prepare_tiny_imagenet.py --out ./data/tiny-imagenet-200
++```
++
++3. Run joint pretraining on a single GPU (Tiny-ImageNet + ViT-Small):
++
++```bash
++python train.py --config configs/tiny_imagenet_vit_small.yaml
++```
++
++4. Launch the Google Colab workflow:
++
++Open `scripts/run_colab.ipynb` and follow the cells to install requirements, download Tiny-ImageNet, run pretraining, perform linear probing, and visualize reconstructions/t-SNE. The notebook includes guidance on mounting Google Drive for checkpoint persistence.
++
++5. Evaluate with a linear probe (e.g., CIFAR-10):
++
++```bash
++python eval_linear.py --config configs/linear_probe_cifar10.yaml
++```
++
++6. Fine-tune on Flowers102:
++
++```bash
++python finetune.py --config configs/finetune_flowers102.yaml
++```
++
++## Repository Structure
++
++```
++hybrid_ssl/
++  configs/                 # YAML configs for pretraining & downstream tasks
++  data/                    # Dataset helpers and preparation scripts
++  losses/                  # Reconstruction, contrastive, and scheduler utilities
++  models/                  # Encoders and heads composing the hybrid model
++  utils/                   # Logging, seeding, masking, metrics, checkpoint helpers
++  scripts/                 # Command-line scripts and Colab notebook
++  tests/                   # PyTest coverage for critical components
++  train.py                 # Joint MAE + SimCLR pretraining entry point
++  eval_linear.py           # Linear probing utility for frozen encoders
++  finetune.py              # Fine-tuning utility for downstream tasks
++  visualize.py             # Reconstructions, embedding projections, attention maps
++```
++
++## Dataset Notes
++
++* **ImageNet-100:** Follow `data/download_imagenet100.md` to subsample from ImageNet-1k or use a pre-built community subset. Update `configs/imagenet100_vitb.yaml` with the correct root path.
++* **Tiny-ImageNet-200:** Use `data/prepare_tiny_imagenet.py` to download and prepare the dataset automatically. The training script expects the ImageNet-style folder layout.
++* **STL-10:** The datamodule leverages the unlabeled split for self-supervised pretraining and provides labeled splits for evaluation.
++* **Flowers102 & Caltech-101:** Downloaded automatically via torchvision datasets.
++* **Galaxy10-DECALS:** Loaded through the HuggingFace `datasets` library when available. The datamodule falls back to a custom HTTP download if `datasets` is not installed.
++
++## Dynamic Alpha Scheduling & Ablations
++
++The total loss is computed as
++
++\[ L(t) = \alpha(t) \cdot L_{\text{rec}} + (1 - \alpha(t)) \cdot L_{\text{contrast}} \]
++
++where `alpha(t)` follows a warmup-to-cosine schedule controlled by `alpha_warmup_epochs`, `alpha_final`, and `alpha_schedule`. Modify these parameters in your YAML config to perform ablations.
++
++## Expected Resource Usage
++
++* **Tiny-ImageNet + ViT-Small (batch=128):** ~13GB GPU memory, ~45 minutes per epoch on an RTX 5080 16GB.
++* **ImageNet-100 + ViT-Base (batch=128):** ~15GB GPU memory, ~1.5 hours per epoch on the same GPU.
++* Mixed precision (`amp: true`) is enabled by default in the provided configs to keep memory usage manageable.
++
++## Reproducibility Tips
++
++* Set deterministic behavior via `--deterministic` in `train.py` (enables deterministic cuDNN kernels at a small performance cost).
++* Ensure all random seeds are set using the `utils/seed.py` helper.
++* Save alpha schedule plots and TensorBoard logs using the built-in logging utilities.
++
++## Switching to ImageNet-100
++
++Update the dataset section of your config to point at the ImageNet-100 root directory and adjust batch size or learning rate as necessary:
++
++```yaml
++dataset:
++  name: "imagenet100"
++  root: "/data/imagenet100"
++  img_size: 224
++```
++
++Then launch pretraining with:
++
++```bash
++python train.py --config configs/imagenet100_vitb.yaml
++```
++
++## Ablations & Extensions
++
++* Modify `mask_ratio` in the config to control the percentage of masked patches.
++* Change `alpha_final` and `alpha_schedule` to explore different loss trade-offs.
++* Swap encoders between ViT and ResNet variants by updating `model.encoder`.
++* Enable optional gradient balancing with `--grad_balance` for multi-task stability.
++
++## Logging & Visualization
++
++The training loop logs losses, learning rate, alpha(t), and reconstruction samples to TensorBoard. Optional Weights & Biases logging can be enabled via `--wandb` or config flags. Visualization utilities save reconstructions, t-SNE/UMAP projections, and attention maps to `runs/<experiment>/figs/`.
++
++## License
++
++This project is released under the MIT License. See [LICENSE](LICENSE) for details.
+diff --git a/configs/finetune_flowers102.yaml b/configs/finetune_flowers102.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..a1c1a427a16fb869e0ed6ad0894f4a1c2a7ad7ce
+--- /dev/null
++++ b/configs/finetune_flowers102.yaml
+@@ -0,0 +1,19 @@
++experiment: "finetune_flowers102"
++dataset:
++  name: "flowers102"
++  root: "./data/flowers102"
++  img_size: 224
++  num_classes: 102
++finetune:
++  epochs: 60
++  lr_backbone: 5e-5
++  lr_head: 5e-3
++  weight_decay: 1e-4
++  batch_size: 64
++  freeze_layers: null
++  num_workers: 8
++checkpoint:
++  encoder_ckpt: "checkpoints/in100_vitb_best.pt"
++logging:
++  out_dir: "runs/finetune_flowers102"
++  tensorboard: true
+diff --git a/configs/imagenet100_vitb.yaml b/configs/imagenet100_vitb.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..c91c945e7013137edaa8960641e246e4bd0c39e2
+--- /dev/null
++++ b/configs/imagenet100_vitb.yaml
+@@ -0,0 +1,32 @@
++experiment: "hybrid_in100_vitb"
++dataset:
++  name: "imagenet100"
++  root: "/data/imagenet100"
++  img_size: 224
++  num_classes: 100
++model:
++  encoder: "vit_base"
++  patch_size: 16
++  mask_ratio: 0.75
++  projector_dim: 256
++  projector_layers: 2
++  temp: 0.2
++loss:
++  alpha_schedule: "cosine"
++  alpha_final: 0.5
++  alpha_warmup_epochs: 20
++optim:
++  lr: 1.5e-4
++  weight_decay: 0.05
++  betas: [0.9, 0.95]
++train:
++  epochs: 120
++  batch_size: 128
++  amp: true
++  grad_clip: 1.0
++  grad_balance: false
++  num_workers: 8
++logging:
++  out_dir: "runs/in100_vitb"
++  tensorboard: true
++  wandb: false
+diff --git a/configs/linear_probe_cifar10.yaml b/configs/linear_probe_cifar10.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..241b3b33837bd851d4b223cf5439f7c0cb9da92e
+--- /dev/null
++++ b/configs/linear_probe_cifar10.yaml
+@@ -0,0 +1,18 @@
++experiment: "lp_cifar10_from_in100"
++dataset:
++  name: "cifar10"
++  root: "./data/cifar10"
++  img_size: 32
++  num_classes: 10
++probe:
++  head_dim: 768
++  epochs: 40
++  lr: 5e-3
++  weight_decay: 1e-4
++  batch_size: 256
++  num_workers: 8
++checkpoint:
++  encoder_ckpt: "checkpoints/in100_vitb_best.pt"
++logging:
++  out_dir: "runs/lp_cifar10"
++  tensorboard: true
+diff --git a/configs/stl10_resnet18.yaml b/configs/stl10_resnet18.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..ea8ee50126025c23cce73261e794de638bae6b6f
+--- /dev/null
++++ b/configs/stl10_resnet18.yaml
+@@ -0,0 +1,31 @@
++experiment: "hybrid_stl10_rn18"
++dataset:
++  name: "stl10"
++  root: "./data/stl10"
++  img_size: 96
++  num_classes: 10
++model:
++  encoder: "resnet18"
++  patch_size: 16
++  mask_ratio: 0.7
++  projector_dim: 128
++  projector_layers: 3
++  temp: 0.2
++loss:
++  alpha_schedule: "cosine"
++  alpha_final: 0.55
++  alpha_warmup_epochs: 15
++optim:
++  lr: 1e-3
++  weight_decay: 0.0005
++train:
++  epochs: 200
++  batch_size: 256
++  amp: true
++  grad_clip: 1.0
++  grad_balance: true
++  num_workers: 8
++logging:
++  out_dir: "runs/stl10_rn18"
++  tensorboard: true
++  wandb: false
+diff --git a/configs/tiny_imagenet_vit_small.yaml b/configs/tiny_imagenet_vit_small.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..92176042d0a2d2cfe75f8a16c7879ed02069e545
+--- /dev/null
++++ b/configs/tiny_imagenet_vit_small.yaml
+@@ -0,0 +1,31 @@
++experiment: "hybrid_tiny_vits"
++dataset:
++  name: "tiny_imagenet"
++  root: "./data/tiny-imagenet-200"
++  img_size: 64
++  num_classes: 200
++model:
++  encoder: "vit_small"
++  patch_size: 8
++  mask_ratio: 0.75
++  projector_dim: 128
++  projector_layers: 2
++  temp: 0.2
++loss:
++  alpha_schedule: "cosine"
++  alpha_final: 0.6
++  alpha_warmup_epochs: 10
++optim:
++  lr: 2e-4
++  weight_decay: 0.05
++train:
++  epochs: 100
++  batch_size: 128
++  amp: true
++  grad_clip: 1.0
++  grad_balance: false
++  num_workers: 8
++logging:
++  out_dir: "runs/tiny_vits"
++  tensorboard: true
++  wandb: false
+diff --git a/data/__init__.py b/data/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/data/datamodules.py b/data/datamodules.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..77bc587666e37bb7033810093a69e866ce0b0c5f
+--- /dev/null
++++ b/data/datamodules.py
+@@ -0,0 +1,209 @@
++"""Dataset modules for hybrid self-supervised learning."""
++from __future__ import annotations
++
++import logging
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Callable, Dict, Optional, Tuple
++
++import torch
++from torch.utils.data import DataLoader, Dataset
++from torchvision import datasets
++
++from .transforms import get_eval_transform, get_mae_transform, get_simclr_transform
++
++try:  # optional dependency
++    from datasets import load_dataset  # type: ignore
++except Exception:  # pragma: no cover - optional dependency
++    load_dataset = None  # type: ignore
++
++LOGGER = logging.getLogger(__name__)
++
++
++@dataclass
++class DataConfig:
++    name: str
++    root: str
++    img_size: int
++    batch_size: int
++    num_workers: int
++    is_pretrain: bool = True
++    download: bool = True
++    eval_split: str = "val"
++
++
++class HybridPretrainDataset(Dataset):
++    """Wraps a vision dataset to provide two SimCLR views and one MAE view."""
++
++    def __init__(
++        self,
++        base_dataset: Dataset,
++        simclr_transform: Callable,
++        mae_transform: Callable,
++    ) -> None:
++        self.base_dataset = base_dataset
++        self.simclr_transform = simclr_transform
++        self.mae_transform = mae_transform
++
++    def __len__(self) -> int:
++        return len(self.base_dataset)
++
++    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
++        img, target = self.base_dataset[index]
++        view1 = self.simclr_transform(img)
++        view2 = self.simclr_transform(img)
++        mae_view = self.mae_transform(img)
++        return {
++            "view1": view1,
++            "view2": view2,
++            "image": mae_view,
++            "target": torch.tensor(target) if isinstance(target, (int, float)) else target,
++        }
++
++
++class HybridEvalDataset(Dataset):
++    """Dataset wrapper returning a single transformed image and label."""
++
++    def __init__(self, base_dataset: Dataset, transform: Callable) -> None:
++        self.base_dataset = base_dataset
++        self.transform = transform
++
++    def __len__(self) -> int:  # pragma: no cover - trivial
++        return len(self.base_dataset)
++
++    def __getitem__(self, index: int):
++        img, target = self.base_dataset[index]
++        return self.transform(img), target
++
++
++class HybridDataModule:
++    """Lightweight datamodule mimicking PyTorch Lightning-style API."""
++
++    def __init__(self, cfg: DataConfig) -> None:
++        self.cfg = cfg
++        self.root = Path(cfg.root)
++        self.train_dataset: Optional[Dataset] = None
++        self.val_dataset: Optional[Dataset] = None
++
++    def setup(self) -> None:
++        self.root.mkdir(parents=True, exist_ok=True)
++        if self.cfg.is_pretrain:
++            base_dataset = self._create_pretrain_dataset(self.cfg.name, train=True)
++            simclr_transform = get_simclr_transform(self.cfg.img_size)
++            mae_transform = get_mae_transform(self.cfg.img_size)
++            self.train_dataset = HybridPretrainDataset(
++                base_dataset=base_dataset,
++                simclr_transform=simclr_transform,
++                mae_transform=mae_transform,
++            )
++            self.val_dataset = None
++        else:
++            train_base = self._create_eval_dataset(self.cfg.name, train=True)
++            val_base = self._create_eval_dataset(self.cfg.name, train=False)
++            transform = get_eval_transform(self.cfg.img_size)
++            self.train_dataset = HybridEvalDataset(train_base, transform)
++            self.val_dataset = HybridEvalDataset(val_base, transform)
++
++    # ------------------------------------------------------------------
++    def train_dataloader(self) -> DataLoader:
++        assert self.train_dataset is not None, "Call setup() before requesting dataloaders."
++        return DataLoader(
++            self.train_dataset,
++            batch_size=self.cfg.batch_size,
++            shuffle=True,
++            num_workers=self.cfg.num_workers,
++            pin_memory=True,
++            drop_last=self.cfg.is_pretrain,
++        )
++
++    def val_dataloader(self) -> Optional[DataLoader]:
++        if self.val_dataset is None:
++            return None
++        return DataLoader(
++            self.val_dataset,
++            batch_size=self.cfg.batch_size,
++            shuffle=False,
++            num_workers=self.cfg.num_workers,
++            pin_memory=True,
++        )
++
++    # ------------------------------------------------------------------
++    def _create_pretrain_dataset(self, name: str, train: bool) -> Dataset:
++        name = name.lower()
++        if name == "imagenet100" or name == "tiny_imagenet":
++            split = "train" if train else "val"
++            dataset = datasets.ImageFolder(str(self.root / split))
++            return dataset
++        if name == "stl10":
++            split = "unlabeled" if train else "test"
++            return datasets.STL10(
++                root=str(self.root),
++                split=split,
++                download=self.cfg.download,
++                transform=None,
++            )
++        raise ValueError(f"Unsupported pretrain dataset: {name}")
++
++    def _create_eval_dataset(self, name: str, train: bool) -> Dataset:
++        name = name.lower()
++        if name == "cifar10":
++            return datasets.CIFAR10(
++                root=str(self.root),
++                train=train,
++                download=self.cfg.download,
++            )
++        if name == "cifar100":
++            return datasets.CIFAR100(
++                root=str(self.root),
++                train=train,
++                download=self.cfg.download,
++            )
++        if name == "stl10":
++            split = "train" if train else "test"
++            return datasets.STL10(
++                root=str(self.root),
++                split=split,
++                download=self.cfg.download,
++            )
++        if name == "flowers102":
++            split = "train" if train else "val"
++            return datasets.Flowers102(
++                root=str(self.root),
++                split=split,
++                download=self.cfg.download,
++            )
++        if name == "caltech101":
++            return datasets.Caltech101(
++                root=str(self.root),
++                download=self.cfg.download,
++            )
++        if name == "galaxy10-decals":
++            return self._load_galaxy10(train)
++        if name in {"imagenet100", "tiny_imagenet"}:
++            split = "train" if train else "val"
++            return datasets.ImageFolder(str(self.root / split))
++        raise ValueError(f"Unsupported evaluation dataset: {name}")
++
++    def _load_galaxy10(self, train: bool) -> Dataset:
++        if load_dataset is None:
++            raise RuntimeError(
++                "HuggingFace datasets is not installed. Install via `pip install datasets` or provide local data."
++            )
++        split = "train" if train else "test"
++        hf_dataset = load_dataset("galaxy10", "decals", split=split)  # type: ignore[arg-type]
++        transform = get_eval_transform(self.cfg.img_size)
++
++        class _Galaxy10Dataset(Dataset):
++            def __len__(self) -> int:
++                return len(hf_dataset)
++
++            def __getitem__(self, index: int):
++                sample = hf_dataset[index]
++                image = sample["image"].convert("RGB")
++                label = int(sample["label"])
++                return transform(image), label
++
++        return _Galaxy10Dataset()
++
++
++__all__ = ["HybridDataModule", "DataConfig", "HybridPretrainDataset", "HybridEvalDataset"]
+diff --git a/data/download_imagenet100.md b/data/download_imagenet100.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a46facb5131f7ebc417e6bf17a11242bdecf25ed
+--- /dev/null
++++ b/data/download_imagenet100.md
+@@ -0,0 +1,42 @@
++# ImageNet-100 Preparation Guide
++
++ImageNet-100 is a community subset of ImageNet-1k containing 100 classes. Two popular approaches for obtaining the dataset are described below. Ensure that you respect the ImageNet license when downloading the original data.
++
++## Option 1: Pre-built Community Subset
++
++* A widely used list of ImageNet-100 class IDs is available [here](https://github.com/HobbitLong/CMC/blob/master/imagenet100.txt).
++* If you already have access to the ImageNet-1k tar archives, extract only the classes listed in the file above into a new directory (e.g., `/data/imagenet100`).
++* Maintain the standard ImageNet folder structure:
++  * `train/<class_name>/*.JPEG`
++  * `val/<class_name>/*.JPEG`
++
++## Option 2: Programmatic Subsampling
++
++1. Download the official ImageNet-1k dataset (requires credentials).
++2. Use the provided class ID list to select a subset of 100 classes.
++3. Run a script similar to the following to create the subset (replace paths accordingly):
++
++```bash
++python - <<'PY'
++import shutil
++from pathlib import Path
++
++root = Path("/path/to/imagenet-1k")
++out = Path("/data/imagenet100")
++with open("imagenet100.txt") as f:
++    classes = [line.strip() for line in f if line.strip()]
++for split in ["train", "val"]:
++    for cls in classes:
++        src = root / split / cls
++        dst = out / split / cls
++        dst.mkdir(parents=True, exist_ok=True)
++        for img in src.glob("*.JPEG"):
++            shutil.copy(img, dst / img.name)
++PY
++```
++
++4. Verify that there are 1300 training images and 50 validation images per class (matching ImageNet-1k statistics).
++
++## Dataset Configuration
++
++Update `configs/imagenet100_vitb.yaml` with the path to your subset. The datamodule assumes the standard ImageNet transforms (224×224 crops, normalization) and supports both self-supervised pretraining and downstream evaluation splits.
+diff --git a/data/prepare_tiny_imagenet.py b/data/prepare_tiny_imagenet.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..12e2f5b55b4d92e0f27edbef08c91bee5a6037a2
+--- /dev/null
++++ b/data/prepare_tiny_imagenet.py
+@@ -0,0 +1,60 @@
++"""Utility script to download and extract Tiny-ImageNet-200."""
++from __future__ import annotations
++
++import argparse
++import tarfile
++from pathlib import Path
++from urllib.request import urlretrieve
++
++
++URL = "http://cs231n.stanford.edu/tiny-imagenet-200.zip"
++
++
++def download(url: str, out_path: Path) -> Path:
++    out_path.parent.mkdir(parents=True, exist_ok=True)
++    if out_path.exists():
++        print(f"Archive already exists at {out_path}, skipping download.")
++        return out_path
++    print(f"Downloading Tiny-ImageNet from {url}...")
++    urlretrieve(url, out_path)
++    print("Download complete.")
++    return out_path
++
++
++def extract(archive: Path, out_dir: Path) -> None:
++    out_dir.mkdir(parents=True, exist_ok=True)
++    print(f"Extracting {archive} to {out_dir}...")
++    if archive.suffix == ".zip":
++        import zipfile
++
++        with zipfile.ZipFile(archive, "r") as zf:
++            zf.extractall(out_dir)
++    elif archive.suffix == ".tar":
++        with tarfile.open(archive, "r") as tf:
++            tf.extractall(out_dir)
++    else:
++        raise ValueError(f"Unsupported archive format: {archive.suffix}")
++    print("Extraction complete.")
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description="Download Tiny-ImageNet-200 dataset")
++    parser.add_argument("--out", type=Path, default=Path("./data"), help="Output directory")
++    parser.add_argument(
++        "--url",
++        type=str,
++        default=URL,
++        help="Override dataset URL if hosting a local mirror.",
++    )
++    args = parser.parse_args()
++
++    archive_dir = args.out
++    archive_dir.mkdir(parents=True, exist_ok=True)
++    archive_path = archive_dir / Path(args.url).name
++    download(args.url, archive_path)
++    extract(archive_path, archive_dir)
++    print("Tiny-ImageNet ready at:", archive_dir / "tiny-imagenet-200")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/data/transforms.py b/data/transforms.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..612471dd8bcaa6a2e3e15a89b0b5b8d8db78fc2e
+--- /dev/null
++++ b/data/transforms.py
+@@ -0,0 +1,59 @@
++"""Augmentation utilities for hybrid MAE + SimCLR training."""
++from __future__ import annotations
++
++from typing import Callable, Tuple
++
++import torch
++from torchvision import transforms
++
++
++def get_normalization(img_size: int) -> Tuple[torch.Tensor, torch.Tensor]:
++    if img_size >= 96:
++        mean = torch.tensor([0.485, 0.456, 0.406])
++        std = torch.tensor([0.229, 0.224, 0.225])
++    else:
++        mean = torch.tensor([0.4914, 0.4822, 0.4465])
++        std = torch.tensor([0.2470, 0.2435, 0.2616])
++    return mean, std
++
++
++def get_simclr_transform(img_size: int) -> Callable:
++    mean, std = get_normalization(img_size)
++    augment = transforms.Compose(
++        [
++            transforms.RandomResizedCrop(img_size, scale=(0.2, 1.0)),
++            transforms.RandomHorizontalFlip(),
++            transforms.RandomApply(
++                [transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8
++            ),
++            transforms.RandomGrayscale(p=0.2),
++            transforms.GaussianBlur(kernel_size=img_size // 10 * 2 + 1, sigma=(0.1, 2.0)),
++            transforms.ToTensor(),
++            transforms.Normalize(mean.tolist(), std.tolist()),
++        ]
++    )
++    return augment
++
++
++def get_mae_transform(img_size: int) -> Callable:
++    mean, std = get_normalization(img_size)
++    return transforms.Compose(
++        [
++            transforms.RandomResizedCrop(img_size, scale=(0.75, 1.0)),
++            transforms.RandomHorizontalFlip(),
++            transforms.ToTensor(),
++            transforms.Normalize(mean.tolist(), std.tolist()),
++        ]
++    )
++
++
++def get_eval_transform(img_size: int) -> Callable:
++    mean, std = get_normalization(img_size)
++    return transforms.Compose(
++        [
++            transforms.Resize(int(img_size * 256 / 224)),
++            transforms.CenterCrop(img_size),
++            transforms.ToTensor(),
++            transforms.Normalize(mean.tolist(), std.tolist()),
++        ]
++    )
+diff --git a/eval_linear.py b/eval_linear.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..37816bad2c9e16289b7e353eb0536dbc947f175b
+--- /dev/null
++++ b/eval_linear.py
+@@ -0,0 +1,130 @@
++"""Linear probe evaluation."""
++from __future__ import annotations
++
++import argparse
++from pathlib import Path
++
++import torch
++from torch import nn
++from torch.optim import SGD
++from torch.utils.data import DataLoader
++from tqdm import tqdm
++
++from data.datamodules import DataConfig, HybridDataModule
++from models.hybrid_model import HybridConfig, HybridModel
++from utils.checkpoint import load_checkpoint, save_checkpoint
++from utils.common import ensure_dir, load_config
++from utils.logging import Logger
++from utils.metrics import accuracy
++
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="Linear probe evaluation")
++    parser.add_argument("--config", type=str, required=True)
++    parser.add_argument("--wandb", action="store_true")
++    return parser.parse_args()
++
++
++def main() -> None:
++    args = parse_args()
++    cfg = load_config(args.config)
++    dataset_cfg = cfg["dataset"]
++    probe_cfg = cfg["probe"]
++    ckpt_path = cfg["checkpoint"]["encoder_ckpt"]
++    log_cfg = cfg.get("logging", {"out_dir": "runs/linear_probe", "tensorboard": True})
++
++    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++
++    dm = HybridDataModule(
++        DataConfig(
++            name=dataset_cfg["name"],
++            root=dataset_cfg["root"],
++            img_size=dataset_cfg["img_size"],
++            batch_size=probe_cfg["batch_size"],
++            num_workers=probe_cfg.get("num_workers", 8),
++            is_pretrain=False,
++        )
++    )
++    dm.setup()
++    train_loader = dm.train_dataloader()
++    val_loader = dm.val_dataloader()
++    if val_loader is None:
++        raise RuntimeError("Evaluation dataset requires validation split")
++
++    checkpoint = load_checkpoint(ckpt_path, map_location="cpu")
++    pretrain_cfg = checkpoint.get("config", {})
++    model_cfg = pretrain_cfg.get("model", {})
++    dataset_pretrain_cfg = pretrain_cfg.get("dataset", {})
++    if not model_cfg:
++        raise ValueError("Checkpoint missing model configuration")
++
++    hybrid_cfg = HybridConfig(
++        encoder=model_cfg["encoder"],
++        img_size=dataset_pretrain_cfg.get("img_size", dataset_cfg["img_size"]),
++        patch_size=model_cfg.get("patch_size", 16),
++        mask_ratio=model_cfg.get("mask_ratio", 0.75),
++        projector_dim=model_cfg.get("projector_dim", probe_cfg["head_dim"]),
++        projector_layers=model_cfg.get("projector_layers", 2),
++        temp=model_cfg.get("temp", 0.2),
++        grad_balance=False,
++    )
++    model = HybridModel(hybrid_cfg)
++    model.load_state_dict(checkpoint["model"], strict=False)
++    encoder = model.encoder.to(device)
++    encoder.eval()
++    for param in encoder.parameters():
++        param.requires_grad = False
++
++    head = nn.Linear(probe_cfg["head_dim"], dataset_cfg["num_classes"]).to(device)
++    criterion = nn.CrossEntropyLoss()
++    optimizer = SGD(head.parameters(), lr=probe_cfg["lr"], weight_decay=probe_cfg.get("weight_decay", 1e-4), momentum=0.9)
++
++    log_dir = ensure_dir(log_cfg.get("out_dir", "runs/linear_probe"))
++    logger = Logger(log_dir, use_tensorboard=log_cfg.get("tensorboard", True), use_wandb=args.wandb or log_cfg.get("wandb", False))
++
++    best_acc = 0.0
++    global_step = 0
++    for epoch in range(probe_cfg["epochs"]):
++        head.train()
++        epoch_loss = 0.0
++        for images, targets in tqdm(train_loader, desc=f"Probe Epoch {epoch+1}", leave=False):
++            images = images.to(device)
++            targets = targets.to(device)
++            with torch.no_grad():
++                feats, _ = encoder(images, return_tokens=False)
++            outputs = head(feats)
++            loss = criterion(outputs, targets)
++            optimizer.zero_grad()
++            loss.backward()
++            optimizer.step()
++            epoch_loss += loss.item()
++            global_step += 1
++        avg_loss = epoch_loss / max(1, len(train_loader))
++
++        # Validation
++        head.eval()
++        correct1 = 0.0
++        correct5 = 0.0
++        total = 0
++        with torch.no_grad():
++            for images, targets in val_loader:
++                images = images.to(device)
++                targets = targets.to(device)
++                feats, _ = encoder(images, return_tokens=False)
++                outputs = head(feats)
++                acc1, acc5 = accuracy(outputs, targets, topk=(1, min(5, dataset_cfg["num_classes"])))
++                correct1 += acc1.item() * targets.size(0) / 100
++                correct5 += acc5.item() * targets.size(0) / 100
++                total += targets.size(0)
++        top1 = 100.0 * correct1 / max(1, total)
++        top5 = 100.0 * correct5 / max(1, total)
++        logger.log_scalars({"probe/loss": avg_loss, "probe/top1": top1, "probe/top5": top5}, epoch)
++        if top1 > best_acc:
++            best_acc = top1
++            save_checkpoint({"head": head.state_dict(), "top1": top1, "epoch": epoch}, log_dir / "best_probe.pt")
++
++    logger.close()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/finetune.py b/finetune.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..bb19f11f7c0496ea5ee5a7698f480bbe02e82cf1
+--- /dev/null
++++ b/finetune.py
+@@ -0,0 +1,132 @@
++"""Fine-tuning script."""
++from __future__ import annotations
++
++import argparse
++
++import torch
++from torch import nn
++from torch.optim import AdamW
++from torch.optim.lr_scheduler import CosineAnnealingLR
++from tqdm import tqdm
++
++from data.datamodules import DataConfig, HybridDataModule
++from models.hybrid_model import HybridConfig, HybridModel
++from utils.checkpoint import load_checkpoint, save_checkpoint
++from utils.common import ensure_dir, load_config
++from utils.logging import Logger
++from utils.metrics import accuracy
++
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="Fine-tuning for downstream tasks")
++    parser.add_argument("--config", type=str, required=True)
++    parser.add_argument("--wandb", action="store_true")
++    return parser.parse_args()
++
++
++def main() -> None:
++    args = parse_args()
++    cfg = load_config(args.config)
++    dataset_cfg = cfg["dataset"]
++    finetune_cfg = cfg["finetune"]
++    ckpt_path = cfg["checkpoint"]["encoder_ckpt"]
++    log_cfg = cfg.get("logging", {"out_dir": "runs/finetune", "tensorboard": True})
++
++    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++
++    dm = HybridDataModule(
++        DataConfig(
++            name=dataset_cfg["name"],
++            root=dataset_cfg["root"],
++            img_size=dataset_cfg["img_size"],
++            batch_size=finetune_cfg["batch_size"],
++            num_workers=finetune_cfg.get("num_workers", 8),
++            is_pretrain=False,
++        )
++    )
++    dm.setup()
++    train_loader = dm.train_dataloader()
++    val_loader = dm.val_dataloader()
++    if val_loader is None:
++        raise RuntimeError("Fine-tuning requires validation split")
++
++    checkpoint = load_checkpoint(ckpt_path, map_location="cpu")
++    pretrain_cfg = checkpoint.get("config", {})
++    model_cfg = pretrain_cfg.get("model", {})
++    dataset_pretrain_cfg = pretrain_cfg.get("dataset", {})
++
++    hybrid_cfg = HybridConfig(
++        encoder=model_cfg["encoder"],
++        img_size=dataset_pretrain_cfg.get("img_size", dataset_cfg["img_size"]),
++        patch_size=model_cfg.get("patch_size", 16),
++        mask_ratio=model_cfg.get("mask_ratio", 0.75),
++        projector_dim=model_cfg.get("projector_dim", 256),
++        projector_layers=model_cfg.get("projector_layers", 2),
++        temp=model_cfg.get("temp", 0.2),
++        grad_balance=False,
++    )
++    model = HybridModel(hybrid_cfg)
++    model.load_state_dict(checkpoint["model"], strict=False)
++    encoder = model.encoder.to(device)
++
++    for name, param in encoder.named_parameters():
++        param.requires_grad = True
++        if finetune_cfg.get("freeze_layers") and any(layer in name for layer in finetune_cfg["freeze_layers"]):
++            param.requires_grad = False
++
++    head = nn.Linear(finetune_cfg.get("head_dim", hybrid_cfg.projector_dim if hasattr(hybrid_cfg, "projector_dim") else 256), dataset_cfg["num_classes"]).to(device)
++    criterion = nn.CrossEntropyLoss()
++    optimizer = AdamW(
++        [
++            {"params": [p for p in encoder.parameters() if p.requires_grad], "lr": finetune_cfg["lr_backbone"]},
++            {"params": head.parameters(), "lr": finetune_cfg["lr_head"]},
++        ],
++        weight_decay=finetune_cfg.get("weight_decay", 1e-4),
++    )
++    scheduler = CosineAnnealingLR(optimizer, T_max=finetune_cfg["epochs"])
++
++    log_dir = ensure_dir(log_cfg.get("out_dir", "runs/finetune"))
++    logger = Logger(log_dir, use_tensorboard=log_cfg.get("tensorboard", True), use_wandb=args.wandb or log_cfg.get("wandb", False))
++
++    best_acc = 0.0
++    for epoch in range(finetune_cfg["epochs"]):
++        encoder.train()
++        head.train()
++        epoch_loss = 0.0
++        for images, targets in tqdm(train_loader, desc=f"Finetune Epoch {epoch+1}", leave=False):
++            images = images.to(device)
++            targets = targets.to(device)
++            feats, _ = encoder(images, return_tokens=False)
++            outputs = head(feats)
++            loss = criterion(outputs, targets)
++            optimizer.zero_grad()
++            loss.backward()
++            optimizer.step()
++            epoch_loss += loss.item()
++        scheduler.step()
++        avg_loss = epoch_loss / max(1, len(train_loader))
++
++        encoder.eval()
++        head.eval()
++        correct1 = 0.0
++        total = 0
++        with torch.no_grad():
++            for images, targets in val_loader:
++                images = images.to(device)
++                targets = targets.to(device)
++                feats, _ = encoder(images, return_tokens=False)
++                outputs = head(feats)
++                acc1, _ = accuracy(outputs, targets, topk=(1, 1))
++                correct1 += acc1.item() * targets.size(0) / 100
++                total += targets.size(0)
++        top1 = 100.0 * correct1 / max(1, total)
++        logger.log_scalars({"finetune/loss": avg_loss, "finetune/top1": top1}, epoch)
++        if top1 > best_acc:
++            best_acc = top1
++            save_checkpoint({"encoder": encoder.state_dict(), "head": head.state_dict(), "top1": top1, "epoch": epoch}, log_dir / "best_finetune.pt")
++
++    logger.close()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/losses/__init__.py b/losses/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/losses/info_nce.py b/losses/info_nce.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..5681eb3c7a624c37993994aa67b57a320780a01e
+--- /dev/null
++++ b/losses/info_nce.py
+@@ -0,0 +1,32 @@
++"""InfoNCE / NT-Xent loss."""
++from __future__ import annotations
++
++import torch
++from torch import nn
++
++from utils.dist import concat_all_gather, get_world_size
++
++
++class InfoNCELoss(nn.Module):
++    def __init__(self, temperature: float = 0.2) -> None:
++        super().__init__()
++        self.temperature = temperature
++
++    def forward(self, z1: torch.Tensor, z2: torch.Tensor) -> torch.Tensor:
++        z1 = nn.functional.normalize(z1, dim=1)
++        z2 = nn.functional.normalize(z2, dim=1)
++        features = torch.cat([z1, z2], dim=0)
++        if get_world_size() > 1:  # pragma: no cover - requires DDP
++            features = concat_all_gather(features)
++        logits = torch.matmul(features, features.T) / self.temperature
++        logits = logits - torch.max(logits, dim=1, keepdim=True).values.detach()
++        mask = torch.eye(logits.size(0), dtype=torch.bool, device=logits.device)
++        logits = logits.masked_fill(mask, float("-inf"))
++        batch_size = z1.size(0)
++        targets = torch.arange(batch_size, device=z1.device)
++        targets = torch.cat([targets + batch_size, targets])
++        loss = nn.functional.cross_entropy(logits, targets)
++        return loss
++
++
++__all__ = ["InfoNCELoss"]
+diff --git a/losses/mae_reconstruction.py b/losses/mae_reconstruction.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..05726306006bdd8ad849ce9387e7e6fd4e8f07d0
+--- /dev/null
++++ b/losses/mae_reconstruction.py
+@@ -0,0 +1,22 @@
++"""MAE reconstruction loss."""
++from __future__ import annotations
++
++import torch
++from torch import nn
++
++from utils.mask import patchify
++
++
++class MAELoss(nn.Module):
++    def __init__(self) -> None:
++        super().__init__()
++        self.mse = nn.MSELoss()
++
++    def forward(self, images: torch.Tensor, preds: torch.Tensor, mask: torch.Tensor, patch_size: int) -> torch.Tensor:
++        target = patchify(images, patch_size)
++        masked_target = target[mask]
++        masked_preds = preds[mask]
++        return self.mse(masked_preds, masked_target)
++
++
++__all__ = ["MAELoss"]
+diff --git a/losses/schedulers.py b/losses/schedulers.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..fd46d5afd80420977543181179f572157b18a9ef
+--- /dev/null
++++ b/losses/schedulers.py
+@@ -0,0 +1,61 @@
++"""Schedulers for loss weighting and learning rate."""
++from __future__ import annotations
++
++import math
++from dataclasses import dataclass
++from typing import Dict, Iterable, List
++
++import torch
++from torch import nn
++
++
++@dataclass
++class AlphaSchedulerConfig:
++    warmup_epochs: int
++    final_alpha: float
++    total_epochs: int
++
++
++class AlphaScheduler:
++    def __init__(self, cfg: AlphaSchedulerConfig) -> None:
++        self.cfg = cfg
++
++    def value(self, epoch: int) -> float:
++        if epoch < self.cfg.warmup_epochs:
++            start = 1.0
++            end = max(self.cfg.final_alpha, 0.0)
++            progress = epoch / max(1, self.cfg.warmup_epochs)
++            return start + (0.6 - start) * progress  # linear to 0.6 during warmup
++        progress = (epoch - self.cfg.warmup_epochs) / max(1, self.cfg.total_epochs - self.cfg.warmup_epochs)
++        cosine = 0.5 * (1 + math.cos(math.pi * progress))
++        return self.cfg.final_alpha + (0.6 - self.cfg.final_alpha) * cosine
++
++
++def cosine_scheduler(base_value: float, final_value: float, epochs: int, steps_per_epoch: int) -> List[float]:
++    values = []
++    for i in range(epochs * steps_per_epoch):
++        progress = i / max(1, epochs * steps_per_epoch - 1)
++        values.append(final_value + 0.5 * (base_value - final_value) * (1 + math.cos(math.pi * progress)))
++    return values
++
++
++def gradient_balance(losses: Dict[str, torch.Tensor], parameters: Iterable[nn.Parameter]) -> Dict[str, torch.Tensor]:
++    params = [p for p in parameters if p.requires_grad]
++    if not params:
++        return losses
++    grads = {}
++    for name, loss in losses.items():
++        grad = torch.autograd.grad(loss, params, retain_graph=True, allow_unused=True)
++        sq_sum = 0.0
++        for g in grad:
++            if g is not None:
++                sq_sum += float(g.pow(2).sum().item())
++        grads[name] = math.sqrt(sq_sum) if sq_sum > 0 else 1.0
++    norm = sum(grads.values())
++    if norm == 0:
++        return losses
++    balanced = {name: loss / (grads[name] / norm) for name, loss in losses.items()}
++    return balanced
++
++
++__all__ = ["AlphaScheduler", "AlphaSchedulerConfig", "cosine_scheduler", "gradient_balance"]
+diff --git a/main.py b/main.py
+deleted file mode 100644
+index b56c69556980a9f1742f2c6a109378e206e2cbe9..0000000000000000000000000000000000000000
+--- a/main.py
++++ /dev/null
+@@ -1,16 +0,0 @@
+-# 这是一个示例 Python 脚本。
+-
+-# 按 ⌃R 执行或将其替换为您的代码。
+-# 按 双击 ⇧ 在所有地方搜索类、文件、工具窗口、操作和设置。
+-
+-
+-def print_hi(name):
+-    # 在下面的代码行中使用断点来调试脚本。
+-    print(f'Hi, {name}')  # 按 ⌘F8 切换断点。
+-
+-
+-# 按装订区域中的绿色按钮以运行脚本。
+-if __name__ == '__main__':
+-    print_hi('PyCharm')
+-
+-# 访问 https://www.jetbrains.com/help/pycharm/ 获取 PyCharm 帮助
+diff --git a/models/__init__.py b/models/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..288299f91eb6624d1bfb14a98ad46597766d94ec
+--- /dev/null
++++ b/models/__init__.py
+@@ -0,0 +1,14 @@
++"""Model factory helpers for Hybrid SSL."""
++from .vit_encoder import build_vit_encoder
++from .resnet_encoder import build_resnet_encoder
++from .mae_decoder import MAEDecoder
++from .projector import Projector
++from .hybrid_model import HybridModel
++
++__all__ = [
++    "build_vit_encoder",
++    "build_resnet_encoder",
++    "MAEDecoder",
++    "Projector",
++    "HybridModel",
++]
+diff --git a/models/hybrid_model.py b/models/hybrid_model.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..f77301bf6e73634f0e09a8a49b1edcb6ac210a6b
+--- /dev/null
++++ b/models/hybrid_model.py
+@@ -0,0 +1,111 @@
++"""Hybrid MAE + SimCLR model."""
++from __future__ import annotations
++
++import math
++from dataclasses import dataclass
++from typing import Dict, Tuple
++
++import torch
++from torch import nn
++
++from losses.info_nce import InfoNCELoss
++from losses.mae_reconstruction import MAELoss
++from losses.schedulers import gradient_balance
++from utils.mask import sample_mask
++
++from .mae_decoder import MAEDecoder
++from .projector import Projector
++from .resnet_encoder import build_resnet_encoder
++from .vit_encoder import build_vit_encoder
++
++
++@dataclass
++class HybridConfig:
++    encoder: str
++    img_size: int
++    patch_size: int
++    mask_ratio: float
++    projector_dim: int
++    projector_layers: int
++    temp: float
++    grad_balance: bool = False
++
++
++class HybridModel(nn.Module):
++    def __init__(self, cfg: HybridConfig) -> None:
++        super().__init__()
++        encoder_name = cfg.encoder.lower()
++        if encoder_name.startswith("vit"):
++            self.encoder = build_vit_encoder(encoder_name, cfg.img_size, cfg.patch_size)
++        elif encoder_name.startswith("resnet"):
++            self.encoder = build_resnet_encoder(encoder_name, cfg.img_size, cfg.patch_size)
++        else:
++            raise ValueError(f"Unsupported encoder: {cfg.encoder}")
++        self.encoder_name = encoder_name
++        self.mask_ratio = cfg.mask_ratio
++        self.patch_size = cfg.patch_size
++        self.projector = Projector(
++            in_dim=getattr(self.encoder, "embed_dim", getattr(self.encoder, "out_dim")),
++            hidden_dim=max(cfg.projector_dim, 128),
++            out_dim=cfg.projector_dim,
++            num_layers=cfg.projector_layers,
++        )
++        self.decoder = MAEDecoder(
++            encoder_dim=getattr(self.encoder, "embed_dim", getattr(self.encoder, "out_dim")),
++            patch_size=self.patch_size,
++        )
++        self.info_nce = InfoNCELoss(cfg.temp)
++        self.mae_loss = MAELoss()
++        self.grad_balance = cfg.grad_balance
++
++    def forward(self, batch: Dict[str, torch.Tensor], alpha: float) -> Dict[str, torch.Tensor]:
++        x1, x2, mae_image = batch["view1"], batch["view2"], batch["image"]
++        z1, _ = self.encoder(x1, return_tokens=False)
++        z2, _ = self.encoder(x2, return_tokens=False)
++        h1 = self.projector(z1)
++        h2 = self.projector(z2)
++        loss_contrast = self.info_nce(h1, h2)
++
++        _, tokens = self.encoder(mae_image, return_tokens=True)
++        if tokens is None:
++            raise RuntimeError("Encoder must return patch tokens for MAE branch.")
++        B, N, _ = tokens.shape
++        mask = sample_mask(B, N, self.mask_ratio, mae_image.device)
++        preds = self.decoder(tokens, mask)
++
++        grid = int(math.sqrt(N))
++        inferred_patch = self.patch_size if grid == 0 else self.encoder_input_patch_size(mae_image.size(-1), grid)
++        if inferred_patch != self.patch_size:
++            # Adjust decoder patch size for non-square tokenization (e.g., ResNet)
++            self.decoder.patch_size = inferred_patch
++        loss_rec = self.mae_loss(mae_image, preds, mask, self.decoder.patch_size)
++
++        losses = {"rec": loss_rec, "contrast": loss_contrast}
++        if self.grad_balance:
++            balanced = gradient_balance({k: v for k, v in losses.items()}, self.parameters())
++            loss_rec = balanced["rec"]
++            loss_contrast = balanced["contrast"]
++        loss_total = alpha * loss_rec + (1 - alpha) * loss_contrast
++
++        return {
++            "z1": z1,
++            "z2": z2,
++            "h1": h1,
++            "h2": h2,
++            "recon": preds,
++            "mask": mask,
++            "loss_rec": loss_rec.detach(),
++            "loss_contrast": loss_contrast.detach(),
++            "loss_total": loss_total,
++        }
++
++    @staticmethod
++    def encoder_input_patch_size(img_size: int, grid: int) -> int:
++        if grid == 0:
++            return img_size
++        if img_size % grid != 0:
++            raise ValueError("Image size must be divisible by token grid size")
++        return img_size // grid
++
++
++__all__ = ["HybridModel", "HybridConfig"]
+diff --git a/models/mae_decoder.py b/models/mae_decoder.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..5a22c9cbd02a8ff6eda1294e9ae80f89e078fdd0
+--- /dev/null
++++ b/models/mae_decoder.py
+@@ -0,0 +1,43 @@
++"""Lightweight MAE decoder."""
++from __future__ import annotations
++
++import torch
++from torch import nn
++
++
++class MAEDecoder(nn.Module):
++    def __init__(
++        self,
++        encoder_dim: int,
++        patch_size: int,
++        decoder_dim: int = 512,
++        img_channels: int = 3,
++    ) -> None:
++        super().__init__()
++        self.patch_size = patch_size
++        self.img_channels = img_channels
++        self.decoder_embed = nn.Linear(encoder_dim, decoder_dim)
++        self.mask_token = nn.Parameter(torch.zeros(1, 1, decoder_dim))
++        self.decoder = nn.Sequential(
++            nn.LayerNorm(decoder_dim),
++            nn.Linear(decoder_dim, decoder_dim),
++            nn.GELU(),
++            nn.Linear(decoder_dim, decoder_dim),
++            nn.GELU(),
++            nn.LayerNorm(decoder_dim),
++        )
++        self.output = nn.Linear(decoder_dim, patch_size * patch_size * img_channels)
++        nn.init.trunc_normal_(self.mask_token, std=0.02)
++
++    def forward(self, tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
++        """Reconstruct patches; mask selects which predictions are used for loss."""
++        # tokens expected shape: (B, N_patches, encoder_dim)
++        x = self.decoder_embed(tokens)
++        mask_token = self.mask_token.expand(x.size(0), x.size(1), -1)
++        x = torch.where(mask.unsqueeze(-1), mask_token, x)
++        x = self.decoder(x)
++        preds = self.output(x)
++        return preds
++
++
++__all__ = ["MAEDecoder"]
+diff --git a/models/projector.py b/models/projector.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..94df46cb49d17eae1aaaa407bb2be5bf155db737
+--- /dev/null
++++ b/models/projector.py
+@@ -0,0 +1,27 @@
++"""SimCLR projection head."""
++from __future__ import annotations
++
++from typing import List
++
++import torch
++from torch import nn
++
++
++class Projector(nn.Module):
++    def __init__(self, in_dim: int, hidden_dim: int, out_dim: int, num_layers: int = 2) -> None:
++        super().__init__()
++        layers: List[nn.Module] = []
++        dim = in_dim
++        for _ in range(num_layers - 1):
++            layers.append(nn.Linear(dim, hidden_dim))
++            layers.append(nn.BatchNorm1d(hidden_dim))
++            layers.append(nn.GELU())
++            dim = hidden_dim
++        layers.append(nn.Linear(dim, out_dim))
++        self.net = nn.Sequential(*layers)
++
++    def forward(self, x: torch.Tensor) -> torch.Tensor:
++        return self.net(x)
++
++
++__all__ = ["Projector"]
+diff --git a/models/resnet_encoder.py b/models/resnet_encoder.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..bdfa1ef5fa9ed91c65240d37c742b24cd95f6998
+--- /dev/null
++++ b/models/resnet_encoder.py
+@@ -0,0 +1,39 @@
++"""ResNet encoder definitions."""
++from __future__ import annotations
++
++from typing import Tuple
++
++import torch
++from torch import nn
++from torchvision import models
++
++
++class ResNetEncoder(nn.Module):
++    def __init__(self, arch: str) -> None:
++        super().__init__()
++        if arch == "resnet18":
++            backbone = models.resnet18(weights=None)
++            out_dim = 512
++        elif arch == "resnet50":
++            backbone = models.resnet50(weights=None)
++            out_dim = 2048
++        else:
++            raise ValueError(f"Unsupported ResNet architecture: {arch}")
++
++        modules = list(backbone.children())[:-2]
++        self.feature_extractor = nn.Sequential(*modules)
++        self.pool = nn.AdaptiveAvgPool2d((1, 1))
++        self.out_dim = out_dim
++
++    def forward(self, x: torch.Tensor, return_tokens: bool = False) -> Tuple[torch.Tensor, torch.Tensor | None]:
++        feats = self.feature_extractor(x)
++        pooled = torch.flatten(self.pool(feats), 1)
++        tokens = feats.flatten(2).transpose(1, 2) if return_tokens else None
++        return pooled, tokens
++
++
++def build_resnet_encoder(name: str, img_size: int, patch_size: int) -> ResNetEncoder:  # pylint: disable=unused-argument
++    return ResNetEncoder(name.lower())
++
++
++__all__ = ["build_resnet_encoder", "ResNetEncoder"]
+diff --git a/models/vit_encoder.py b/models/vit_encoder.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..64edf01732d570004cad33c41dd70b9356f13f5c
+--- /dev/null
++++ b/models/vit_encoder.py
+@@ -0,0 +1,104 @@
++"""Vision Transformer encoder definitions."""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Dict, Optional, Tuple
++
++import torch
++from torch import nn
++
++
++@dataclass
++class ViTConfig:
++    embed_dim: int
++    depth: int
++    num_heads: int
++    mlp_ratio: float = 4.0
++
++
++VIT_PRESETS: Dict[str, ViTConfig] = {
++    "vit_small": ViTConfig(embed_dim=384, depth=8, num_heads=6),
++    "vit_base": ViTConfig(embed_dim=768, depth=12, num_heads=12),
++}
++
++
++class PatchEmbed(nn.Module):
++    def __init__(self, img_size: int, patch_size: int, in_chans: int, embed_dim: int) -> None:
++        super().__init__()
++        self.img_size = img_size
++        self.patch_size = patch_size
++        self.grid_size = img_size // patch_size
++        self.num_patches = self.grid_size * self.grid_size
++        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
++
++    def forward(self, x: torch.Tensor) -> torch.Tensor:
++        x = self.proj(x)
++        x = x.flatten(2).transpose(1, 2)
++        return x
++
++
++class MLP(nn.Module):
++    def __init__(self, in_features: int, hidden_features: int) -> None:
++        super().__init__()
++        self.fc1 = nn.Linear(in_features, hidden_features)
++        self.act = nn.GELU()
++        self.fc2 = nn.Linear(hidden_features, in_features)
++
++    def forward(self, x: torch.Tensor) -> torch.Tensor:
++        return self.fc2(self.act(self.fc1(x)))
++
++
++class Block(nn.Module):
++    def __init__(self, dim: int, num_heads: int, mlp_ratio: float) -> None:
++        super().__init__()
++        self.norm1 = nn.LayerNorm(dim)
++        self.attn = nn.MultiheadAttention(dim, num_heads, batch_first=True)
++        self.norm2 = nn.LayerNorm(dim)
++        self.mlp = MLP(dim, int(dim * mlp_ratio))
++
++    def forward(self, x: torch.Tensor) -> torch.Tensor:
++        attn_out, _ = self.attn(self.norm1(x), self.norm1(x), self.norm1(x))
++        x = x + attn_out
++        x = x + self.mlp(self.norm2(x))
++        return x
++
++
++class ViTEncoder(nn.Module):
++    def __init__(self, img_size: int, patch_size: int, cfg: ViTConfig, in_chans: int = 3) -> None:
++        super().__init__()
++        self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, cfg.embed_dim)
++        num_patches = self.patch_embed.num_patches
++        self.cls_token = nn.Parameter(torch.zeros(1, 1, cfg.embed_dim))
++        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, cfg.embed_dim))
++        self.pos_drop = nn.Dropout(p=0.1)
++        self.blocks = nn.ModuleList([Block(cfg.embed_dim, cfg.num_heads, cfg.mlp_ratio) for _ in range(cfg.depth)])
++        self.norm = nn.LayerNorm(cfg.embed_dim)
++        self.embed_dim = cfg.embed_dim
++        nn.init.trunc_normal_(self.cls_token, std=0.02)
++        nn.init.trunc_normal_(self.pos_embed, std=0.02)
++
++    def forward(self, x: torch.Tensor, return_tokens: bool = False) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
++        B = x.size(0)
++        x = self.patch_embed(x)
++        cls_tokens = self.cls_token.expand(B, -1, -1)
++        x = torch.cat((cls_tokens, x), dim=1)
++        x = x + self.pos_embed[:, : x.size(1)]
++        x = self.pos_drop(x)
++        for blk in self.blocks:
++            x = blk(x)
++        x = self.norm(x)
++        cls = x[:, 0]
++        tokens = x[:, 1:] if return_tokens else None
++        return cls, tokens
++
++
++def build_vit_encoder(name: str, img_size: int, patch_size: int) -> ViTEncoder:
++    name = name.lower()
++    if name not in VIT_PRESETS:
++        raise ValueError(f"Unknown ViT encoder: {name}. Available: {list(VIT_PRESETS)}")
++    if img_size % patch_size != 0:
++        raise ValueError(f"Image size {img_size} must be divisible by patch size {patch_size}.")
++    return ViTEncoder(img_size=img_size, patch_size=patch_size, cfg=VIT_PRESETS[name])
++
++
++__all__ = ["build_vit_encoder", "ViTEncoder"]
+diff --git a/pyproject.toml b/pyproject.toml
+new file mode 100644
+index 0000000000000000000000000000000000000000..0cdb03406ef35707b28b77c2b593643421f26734
+--- /dev/null
++++ b/pyproject.toml
+@@ -0,0 +1,38 @@
++[build-system]
++requires = ["setuptools>=65", "wheel"]
++build-backend = "setuptools.build_meta"
++
++[project]
++name = "hybrid-ssl"
++version = "0.1.0"
++description = "Hybrid MAE + SimCLR self-supervised learning"
++readme = "README.md"
++requires-python = ">=3.10"
++authors = [{name = "Hybrid SSL Team"}]
++license = {text = "MIT"}
++dependencies = [
++    "torch==2.2.2",
++    "torchvision==0.17.2",
++    "torchaudio==2.2.2",
++    "numpy==1.26.4",
++    "scipy==1.11.4",
++    "scikit-learn==1.4.1",
++    "matplotlib==3.8.3",
++    "seaborn==0.13.2",
++    "tqdm==4.66.2",
++    "pyyaml==6.0.1",
++    "tensorboard==2.15.2",
++    "wandb==0.16.4",
++    "timm==0.9.12",
++    "einops==0.7.0",
++    "umap-learn==0.5.5",
++    "pandas==2.2.1",
++    "huggingface-hub==0.20.2",
++    "datasets==2.17.1",
++]
++
++[project.optional-dependencies]
++develop = ["pytest", "black", "ruff"]
++
++[tool.setuptools.packages.find]
++exclude = ["tests", "docs"]
+diff --git a/requirements.txt b/requirements.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..77147fa06515ef587bf3698d9d35fdb17406d82a
+--- /dev/null
++++ b/requirements.txt
+@@ -0,0 +1,18 @@
++torch==2.2.2
++torchvision==0.17.2
++torchaudio==2.2.2
++numpy==1.26.4
++scipy==1.11.4
++scikit-learn==1.4.1
++matplotlib==3.8.3
++seaborn==0.13.2
++tqdm==4.66.2
++pyyaml==6.0.1
++tensorboard==2.15.2
++wandb==0.16.4
++timm==0.9.12
++einops==0.7.0
++umap-learn==0.5.5
++pandas==2.2.1
++huggingface-hub==0.20.2
++datasets==2.17.1
+diff --git a/scripts/run_colab.ipynb b/scripts/run_colab.ipynb
+new file mode 100644
+index 0000000000000000000000000000000000000000..3562f3bc719f959fa1104c0915d03648ca86ce9c
+--- /dev/null
++++ b/scripts/run_colab.ipynb
+@@ -0,0 +1,76 @@
++{
++ "cells": [
++  {
++   "cell_type": "markdown",
++   "metadata": {},
++   "source": [
++    "# Hybrid SSL Colab Runner\n",
++    "This notebook installs dependencies, downloads Tiny-ImageNet, launches pretraining, runs a linear probe, and visualizes reconstructions and t-SNE embeddings."
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": null,
++   "metadata": {},
++   "outputs": [],
++   "source": [
++    "!pip install -q torch torchvision torchaudio timm einops tensorboard wandb umap-learn datasets"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": null,
++   "metadata": {},
++   "outputs": [],
++   "source": [
++    "import pathlib\n",
++    "repo = pathlib.Path('/content/hybrid_ssl').resolve()\n",
++    "if not repo.exists():\n",
++    "    !git clone https://github.com/placeholder/hybrid_ssl.git $repo\n",
++    "%cd $repo\n",
++    "!pip install -q -e .\n"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": null,
++   "metadata": {},
++   "outputs": [],
++   "source": [
++    "!python data/prepare_tiny_imagenet.py --out ./data\n",
++    "!python train.py --config configs/tiny_imagenet_vit_small.yaml --wandb\n"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": null,
++   "metadata": {},
++   "outputs": [],
++   "source": [
++    "!python eval_linear.py --config configs/linear_probe_cifar10.yaml\n"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": null,
++   "metadata": {},
++   "outputs": [],
++   "source": [
++    "!python visualize.py --config configs/tiny_imagenet_vit_small.yaml --checkpoint runs/tiny_vits/best.pt --out runs/tiny_vits/figs\n"
++   ]
++  }
++ ],
++ "metadata": {
++  "kernelspec": {
++   "display_name": "Python 3",
++   "language": "python",
++   "name": "python3"
++  },
++  "language_info": {
++   "name": "python",
++   "version": "3.10"
++  }
++ },
++ "nbformat": 4,
++ "nbformat_minor": 5
++}
+diff --git a/scripts/run_finetune.sh b/scripts/run_finetune.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..e7a5826c92cab0222613fafb022a21e73932f1e9
+--- /dev/null
++++ b/scripts/run_finetune.sh
+@@ -0,0 +1,5 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++CONFIG=${1:-configs/finetune_flowers102.yaml}
++python finetune.py --config "$CONFIG"
+diff --git a/scripts/run_linear_probe.sh b/scripts/run_linear_probe.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..23a1ae8792bf5dab277cacc0db532d8505c07395
+--- /dev/null
++++ b/scripts/run_linear_probe.sh
+@@ -0,0 +1,5 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++CONFIG=${1:-configs/linear_probe_cifar10.yaml}
++python eval_linear.py --config "$CONFIG"
+diff --git a/scripts/run_local_single_gpu.sh b/scripts/run_local_single_gpu.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..10023b20f9919a5a41748d4b83e91d7903b60123
+--- /dev/null
++++ b/scripts/run_local_single_gpu.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++CONFIG_PRETRAIN=${1:-configs/tiny_imagenet_vit_small.yaml}
++CONFIG_LP=${2:-configs/linear_probe_cifar10.yaml}
++
++python train.py --config "$CONFIG_PRETRAIN"
++python eval_linear.py --config "$CONFIG_LP"
+diff --git a/setup.py b/setup.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..2b91df0d378f530e8b5996e9b08cf317f1a196c7
+--- /dev/null
++++ b/setup.py
+@@ -0,0 +1,24 @@
++from pathlib import Path
++from setuptools import find_packages, setup
++
++HERE = Path(__file__).parent
++README = (HERE / "README.md").read_text(encoding="utf-8") if (HERE / "README.md").exists() else "Hybrid SSL"
++
++setup(
++    name="hybrid-ssl",
++    version="0.1.0",
++    description="Hybrid MAE + SimCLR self-supervised learning framework",
++    long_description=README,
++    long_description_content_type="text/markdown",
++    author="Hybrid SSL Contributors",
++    url="https://github.com/example/hybrid-ssl",
++    packages=find_packages(exclude=("tests", "docs")),
++    python_requires=">=3.10",
++    install_requires=[line.strip() for line in (HERE / "requirements.txt").read_text().splitlines() if line.strip()],
++    include_package_data=True,
++    classifiers=[
++        "Programming Language :: Python :: 3",
++        "License :: OSI Approved :: MIT License",
++        "Operating System :: OS Independent",
++    ],
++)
+diff --git a/tests/__pycache__/test_forward_shapes.cpython-311-pytest-8.4.1.pyc b/tests/__pycache__/test_forward_shapes.cpython-311-pytest-8.4.1.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..8dec3329f2fd73f955aec452375609e66f0159bc
+GIT binary patch
+literal 6504
+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
+BxLyDN
+
+literal 0
+HcmV?d00001
+
+diff --git a/tests/__pycache__/test_losses.cpython-311-pytest-8.4.1.pyc b/tests/__pycache__/test_losses.cpython-311-pytest-8.4.1.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..674a903c02ad4a7711e1e773dd3bbcc058dd6763
+GIT binary patch
+literal 4941
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/tests/__pycache__/test_mask.cpython-311-pytest-8.4.1.pyc b/tests/__pycache__/test_mask.cpython-311-pytest-8.4.1.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..284ee992117e3b8b4669e78ca40b9ccd80943957
+GIT binary patch
+literal 5995
+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
+S{w3$47es#IC3lw4^8N)W-Xu8y
+
+literal 0
+HcmV?d00001
+
+diff --git a/tests/test_forward_shapes.py b/tests/test_forward_shapes.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e576d9285247f34baa96197c542449e24d85a70b
+--- /dev/null
++++ b/tests/test_forward_shapes.py
+@@ -0,0 +1,49 @@
++import pytest
++
++torch = pytest.importorskip("torch")
++
++from models.hybrid_model import HybridConfig, HybridModel
++
++
++def test_hybrid_forward_shapes():
++    cfg = HybridConfig(
++        encoder="vit_small",
++        img_size=64,
++        patch_size=8,
++        mask_ratio=0.75,
++        projector_dim=128,
++        projector_layers=2,
++        temp=0.2,
++    )
++    model = HybridModel(cfg)
++    batch = {
++        "view1": torch.randn(2, 3, 64, 64),
++        "view2": torch.randn(2, 3, 64, 64),
++        "image": torch.randn(2, 3, 64, 64),
++    }
++    outputs = model(batch, alpha=0.5)
++    assert outputs["z1"].shape == (2, model.projector.net[0].in_features)
++    assert outputs["h1"].shape == (2, cfg.projector_dim)
++    assert outputs["recon"].shape[0] == 2
++    assert outputs["mask"].shape[1] == (64 // cfg.patch_size) ** 2
++
++
++def test_resnet_tokens():
++    cfg = HybridConfig(
++        encoder="resnet18",
++        img_size=224,
++        patch_size=16,
++        mask_ratio=0.5,
++        projector_dim=128,
++        projector_layers=2,
++        temp=0.2,
++    )
++    model = HybridModel(cfg)
++    batch = {
++        "view1": torch.randn(1, 3, 224, 224),
++        "view2": torch.randn(1, 3, 224, 224),
++        "image": torch.randn(1, 3, 224, 224),
++    }
++    outputs = model(batch, alpha=0.5)
++    assert outputs["h1"].shape[-1] == cfg.projector_dim
++    assert outputs["mask"].shape[1] == outputs["recon"].shape[1]
+diff --git a/tests/test_losses.py b/tests/test_losses.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..4c701ac4997056d15c3481414c51e6428a71423e
+--- /dev/null
++++ b/tests/test_losses.py
+@@ -0,0 +1,25 @@
++import pytest
++
++torch = pytest.importorskip("torch")
++
++from losses.info_nce import InfoNCELoss
++from losses.mae_reconstruction import MAELoss
++from utils.mask import patchify
++
++
++def test_info_nce_positive():
++    loss_fn = InfoNCELoss(temperature=0.2)
++    z = torch.randn(4, 16)
++    loss = loss_fn(z, z)
++    assert torch.isfinite(loss)
++    assert loss.item() > 0
++
++
++def test_mae_loss_decreases():
++    images = torch.randn(2, 3, 32, 32)
++    patch_size = 8
++    preds = patchify(images, patch_size)
++    mask = torch.zeros(preds.shape[:2], dtype=torch.bool)
++    loss_fn = MAELoss()
++    loss = loss_fn(images, preds, mask, patch_size)
++    assert torch.allclose(loss, torch.tensor(0.0))
+diff --git a/tests/test_mask.py b/tests/test_mask.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..c565611547b7c59b47ebbedd7f0a9b1740b7f447
+--- /dev/null
++++ b/tests/test_mask.py
+@@ -0,0 +1,23 @@
++import pytest
++
++torch = pytest.importorskip("torch")
++
++from utils.mask import num_patches, sample_mask
++
++
++def test_sample_mask_shape_ratio():
++    batch = 2
++    img_size = 64
++    patch_size = 8
++    patches = num_patches(img_size, patch_size)
++    mask = sample_mask(batch, patches, mask_ratio=0.75, device=torch.device("cpu"))
++    assert mask.shape == (batch, patches)
++    visible = (~mask).sum(dim=1)
++    assert torch.all(visible == torch.tensor(int(patches * 0.25)))
++
++
++def test_sample_mask_visible_tokens():
++    batch = 1
++    patches = 196
++    mask = sample_mask(batch, patches, mask_ratio=0.5, device=torch.device("cpu"))
++    assert mask.sum().item() == patches * 0.5
+diff --git a/train.py b/train.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..6fa848ffefc8ae9aebccc3edc6c2acca7bd5626f
+--- /dev/null
++++ b/train.py
+@@ -0,0 +1,183 @@
++"""Joint pretraining entry script."""
++from __future__ import annotations
++
++import argparse
++from typing import Dict
++
++import torch
++from torch.cuda.amp import GradScaler, autocast
++from torch.nn.utils import clip_grad_norm_
++from torch.optim import AdamW
++from tqdm import tqdm
++
++from data.datamodules import DataConfig, HybridDataModule
++from losses.schedulers import AlphaScheduler, AlphaSchedulerConfig, cosine_scheduler
++from models.hybrid_model import HybridConfig, HybridModel
++from utils.checkpoint import save_checkpoint
++from utils.common import ensure_dir, load_config
++from utils.logging import Logger
++from utils.seed import SeedConfig, seed_everything
++
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="Hybrid MAE + SimCLR pretraining")
++    parser.add_argument("--config", type=str, required=True, help="Path to YAML config")
++    parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
++    parser.add_argument("--deterministic", action="store_true", help="Enable deterministic mode")
++    return parser.parse_args()
++
++
++def to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str, torch.Tensor]:
++    return {k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v for k, v in batch.items()}
++
++
++def main() -> None:
++    args = parse_args()
++    cfg = load_config(args.config)
++
++    seed_cfg = SeedConfig(seed=cfg.get("seed", 42), deterministic=args.deterministic)
++    seed_everything(seed_cfg)
++
++    dataset_cfg = cfg["dataset"]
++    train_cfg = cfg["train"]
++    model_cfg = cfg["model"]
++    optim_cfg = cfg.get("optim", {"lr": 1e-4, "weight_decay": 0.05})
++    loss_cfg = cfg.get("loss", {})
++    log_cfg = cfg.get("logging", {"out_dir": "runs/default", "tensorboard": True})
++
++    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++
++    dm = HybridDataModule(
++        DataConfig(
++            name=dataset_cfg["name"],
++            root=dataset_cfg["root"],
++            img_size=dataset_cfg["img_size"],
++            batch_size=train_cfg["batch_size"],
++            num_workers=train_cfg.get("num_workers", 8),
++            is_pretrain=True,
++        )
++    )
++    dm.setup()
++    train_loader = dm.train_dataloader()
++
++    hybrid_cfg = HybridConfig(
++        encoder=model_cfg["encoder"],
++        img_size=dataset_cfg["img_size"],
++        patch_size=model_cfg["patch_size"],
++        mask_ratio=model_cfg.get("mask_ratio", 0.75),
++        projector_dim=model_cfg.get("projector_dim", 256),
++        projector_layers=model_cfg.get("projector_layers", 2),
++        temp=model_cfg.get("temp", 0.2),
++        grad_balance=train_cfg.get("grad_balance", False),
++    )
++    model = HybridModel(hybrid_cfg).to(device)
++
++    optimizer = AdamW(
++        model.parameters(),
++        lr=optim_cfg.get("lr", 1e-4),
++        betas=tuple(optim_cfg.get("betas", (0.9, 0.95))),
++        weight_decay=optim_cfg.get("weight_decay", 0.05),
++    )
++    scaler = GradScaler(enabled=train_cfg.get("amp", True) and device.type == "cuda")
++
++    epochs = train_cfg["epochs"]
++    steps_per_epoch = len(train_loader)
++    lr_schedule = cosine_scheduler(
++        base_value=optim_cfg.get("lr", 1e-4),
++        final_value=optim_cfg.get("final_lr", 1e-6),
++        epochs=epochs,
++        steps_per_epoch=steps_per_epoch,
++    )
++    alpha_scheduler = AlphaScheduler(
++        AlphaSchedulerConfig(
++            warmup_epochs=loss_cfg.get("alpha_warmup_epochs", 10),
++            final_alpha=loss_cfg.get("alpha_final", 0.5),
++            total_epochs=epochs,
++        )
++    )
++    log_dir = ensure_dir(log_cfg.get("out_dir", "runs/default"))
++    logger = Logger(log_dir, use_tensorboard=log_cfg.get("tensorboard", True), use_wandb=args.wandb or log_cfg.get("wandb", False))
++
++    alpha_values = []
++    best_loss = float("inf")
++    global_step = 0
++
++    for epoch in range(epochs):
++        model.train()
++        alpha = alpha_scheduler.value(epoch)
++        epoch_loss = 0.0
++        progress = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False)
++        for step, batch in enumerate(progress):
++            batch = to_device(batch, device)
++            lr = lr_schedule[global_step]
++            for pg in optimizer.param_groups:
++                pg["lr"] = lr
++            with autocast(enabled=train_cfg.get("amp", True) and device.type == "cuda"):
++                outputs = model(batch, alpha)
++                loss = outputs["loss_total"]
++            optimizer.zero_grad(set_to_none=True)
++            scaler.scale(loss).backward()
++            if train_cfg.get("grad_clip"):
++                scaler.unscale_(optimizer)
++                clip_grad_norm_(model.parameters(), train_cfg["grad_clip"])
++            scaler.step(optimizer)
++            scaler.update()
++
++            epoch_loss += loss.item()
++            logger.log_scalars(
++                {
++                    "train/loss_total": loss.item(),
++                    "train/loss_rec": outputs["loss_rec"].item(),
++                    "train/loss_contrast": outputs["loss_contrast"].item(),
++                    "train/lr": lr,
++                    "train/alpha": alpha,
++                },
++                step=global_step,
++            )
++            global_step += 1
++        avg_loss = epoch_loss / max(1, steps_per_epoch)
++        alpha_values.append(alpha)
++        checkpoint_path = log_dir / f"epoch_{epoch:03d}.pt"
++        save_checkpoint(
++            {
++                "model": model.state_dict(),
++                "optimizer": optimizer.state_dict(),
++                "scaler": scaler.state_dict(),
++                "epoch": epoch,
++                "config": cfg,
++            },
++            checkpoint_path,
++        )
++        if avg_loss < best_loss:
++            best_loss = avg_loss
++            save_checkpoint(
++                {
++                    "model": model.state_dict(),
++                    "optimizer": optimizer.state_dict(),
++                    "scaler": scaler.state_dict(),
++                    "epoch": epoch,
++                    "config": cfg,
++                },
++                log_dir / "best.pt",
++            )
++
++    # Save alpha schedule plot
++    try:
++        import matplotlib.pyplot as plt
++
++        plt.figure()
++        plt.plot(range(epochs), alpha_values)
++        plt.xlabel("Epoch")
++        plt.ylabel("Alpha")
++        plt.title("Alpha Schedule")
++        plt.tight_layout()
++        plt.savefig(log_dir / "alpha_schedule.png")
++        plt.close()
++    except Exception as exc:  # pragma: no cover - matplotlib optional in tests
++        print(f"Failed to save alpha plot: {exc}")
++
++    logger.close()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/utils/__init__.py b/utils/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/utils/checkpoint.py b/utils/checkpoint.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..38aeeb10f80b5ddb74c052c89b5904798dc0f4e7
+--- /dev/null
++++ b/utils/checkpoint.py
+@@ -0,0 +1,22 @@
++"""Checkpoint utilities."""
++from __future__ import annotations
++
++from pathlib import Path
++from typing import Any, Dict
++
++import torch
++
++from .common import ensure_dir
++
++
++def save_checkpoint(state: Dict[str, Any], path: str | Path) -> None:
++    path = Path(path)
++    ensure_dir(path.parent)
++    torch.save(state, path)
++
++
++def load_checkpoint(path: str | Path, map_location: str | torch.device = "cpu") -> Dict[str, Any]:
++    return torch.load(path, map_location=map_location)
++
++
++__all__ = ["save_checkpoint", "load_checkpoint"]
+diff --git a/utils/common.py b/utils/common.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..6b1f972a30bd010ded43e14cc4e9db19eb2f5649
+--- /dev/null
++++ b/utils/common.py
+@@ -0,0 +1,24 @@
++"""Common helper utilities."""
++from __future__ import annotations
++
++from pathlib import Path
++from typing import Any, Dict
++
++import yaml
++
++
++def load_config(path: str | Path) -> Dict[str, Any]:
++    with open(path, "r", encoding="utf-8") as f:
++        cfg = yaml.safe_load(f)
++    if not isinstance(cfg, dict):
++        raise ValueError("Configuration file must define a YAML mapping.")
++    return cfg
++
++
++def ensure_dir(path: str | Path) -> Path:
++    path = Path(path)
++    path.mkdir(parents=True, exist_ok=True)
++    return path
++
++
++__all__ = ["load_config", "ensure_dir"]
+diff --git a/utils/dist.py b/utils/dist.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..8d958875c92b2e682d2a834580368d20e6928e5e
+--- /dev/null
++++ b/utils/dist.py
+@@ -0,0 +1,66 @@
++"""Minimal distributed utilities."""
++from __future__ import annotations
++
++import os
++from contextlib import contextmanager
++from typing import Any, Iterable
++
++import torch
++import torch.distributed as dist
++
++
++def is_dist_avail_and_initialized() -> bool:
++    return dist.is_available() and dist.is_initialized()
++
++
++def get_world_size() -> int:
++    if not is_dist_avail_and_initialized():
++        return 1
++    return dist.get_world_size()
++
++
++def get_rank() -> int:
++    if not is_dist_avail_and_initialized():
++        return 0
++    return dist.get_rank()
++
++
++def barrier() -> None:
++    if is_dist_avail_and_initialized():  # pragma: no cover - depends on DDP
++        dist.barrier()
++
++
++def setup_distributed(port: int | None = None) -> None:
++    if "RANK" not in os.environ:
++        return
++    backend = "nccl" if torch.cuda.is_available() else "gloo"
++    init_method = f"tcp://127.0.0.1:{port or 29500}"
++    dist.init_process_group(backend=backend, init_method=init_method)
++
++
++@contextmanager
++def distributed_zero_first(local_rank: int):
++    if local_rank not in (0, -1):
++        barrier()
++    yield
++    if local_rank == 0:
++        barrier()
++
++
++def concat_all_gather(tensor: torch.Tensor) -> torch.Tensor:
++    if get_world_size() == 1:
++        return tensor
++    tensors_gather = [torch.zeros_like(tensor) for _ in range(get_world_size())]
++    dist.all_gather(tensors_gather, tensor)
++    return torch.cat(tensors_gather, dim=0)
++
++
++__all__ = [
++    "is_dist_avail_and_initialized",
++    "get_world_size",
++    "get_rank",
++    "barrier",
++    "setup_distributed",
++    "distributed_zero_first",
++    "concat_all_gather",
++]
+diff --git a/utils/logging.py b/utils/logging.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..75b0dc6532437abecb0aff2cd94946f0cca66602
+--- /dev/null
++++ b/utils/logging.py
+@@ -0,0 +1,53 @@
++"""Logging utilities."""
++from __future__ import annotations
++
++import contextlib
++from pathlib import Path
++from typing import Dict, Optional
++
++from torch.utils.tensorboard import SummaryWriter
++
++try:  # optional
++    import wandb
++except Exception:  # pragma: no cover - optional dependency
++    wandb = None  # type: ignore
++
++
++class Logger:
++    def __init__(self, log_dir: Path, use_tensorboard: bool = True, use_wandb: bool = False, project: str = "hybrid-ssl") -> None:
++        self.log_dir = log_dir
++        self.log_dir.mkdir(parents=True, exist_ok=True)
++        self.writer: Optional[SummaryWriter] = None
++        if use_tensorboard:
++            self.writer = SummaryWriter(log_dir=str(log_dir))
++        self.use_wandb = use_wandb and wandb is not None
++        if self.use_wandb:
++            wandb.init(project=project, dir=str(log_dir), config={})
++
++    def log_scalars(self, scalars: Dict[str, float], step: int) -> None:
++        if self.writer is not None:
++            for key, value in scalars.items():
++                self.writer.add_scalar(key, value, step)
++        if self.use_wandb:
++            wandb.log({**scalars, "step": step})
++
++    def log_images(self, tag: str, images, step: int) -> None:
++        if self.writer is not None:
++            self.writer.add_images(tag, images, step)
++        if self.use_wandb:
++            wandb.log({tag: [wandb.Image(img) for img in images], "step": step})
++
++    def close(self) -> None:
++        if self.writer is not None:
++            self.writer.close()
++        if self.use_wandb:
++            wandb.finish()
++
++    def __enter__(self) -> "Logger":
++        return self
++
++    def __exit__(self, exc_type, exc, tb) -> None:
++        self.close()
++
++
++__all__ = ["Logger"]
+diff --git a/utils/mask.py b/utils/mask.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e3fe22fc45cc8590be08af8858879f49ec542fe5
+--- /dev/null
++++ b/utils/mask.py
+@@ -0,0 +1,44 @@
++"""Masking utilities for MAE."""
++from __future__ import annotations
++
++import math
++from typing import Tuple
++
++import torch
++
++
++def num_patches(img_size: int, patch_size: int) -> int:
++    if img_size % patch_size != 0:
++        raise ValueError(f"Image size {img_size} must be divisible by patch size {patch_size}.")
++    grid = img_size // patch_size
++    return grid * grid
++
++
++def sample_mask(batch: int, num_patches_: int, mask_ratio: float, device: torch.device) -> torch.Tensor:
++    keep = max(1, int(round(num_patches_ * (1 - mask_ratio))))
++    noise = torch.rand(batch, num_patches_, device=device)
++    ids_shuffle = torch.argsort(noise, dim=1)
++    mask = torch.ones(batch, num_patches_, device=device, dtype=torch.bool)
++    mask.scatter_(1, ids_shuffle[:, :keep], False)
++    return mask
++
++
++def patchify(images: torch.Tensor, patch_size: int) -> torch.Tensor:
++    """Convert images to patch sequences."""
++    B, C, H, W = images.shape
++    assert H == W and H % patch_size == 0
++    h = w = H // patch_size
++    x = images.reshape(B, C, h, patch_size, w, patch_size)
++    x = x.permute(0, 2, 4, 3, 5, 1).reshape(B, h * w, patch_size * patch_size * C)
++    return x
++
++
++def unpatchify(patches: torch.Tensor, patch_size: int, channels: int) -> torch.Tensor:
++    B, N, L = patches.shape
++    grid = int(math.sqrt(N))
++    x = patches.reshape(B, grid, grid, patch_size, patch_size, channels)
++    x = x.permute(0, 5, 1, 3, 2, 4).reshape(B, channels, grid * patch_size, grid * patch_size)
++    return x
++
++
++__all__ = ["num_patches", "sample_mask", "patchify", "unpatchify"]
+diff --git a/utils/metrics.py b/utils/metrics.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..ad429198a67a7fd39d8da9b1b0d9a684ab8cd406
+--- /dev/null
++++ b/utils/metrics.py
+@@ -0,0 +1,23 @@
++"""Metric utilities."""
++from __future__ import annotations
++
++from typing import Tuple
++
++import torch
++from torch import Tensor
++
++
++def accuracy(output: Tensor, target: Tensor, topk: Tuple[int, ...] = (1,)) -> list[Tensor]:
++    maxk = max(topk)
++    batch_size = target.size(0)
++    _, pred = output.topk(maxk, dim=1, largest=True, sorted=True)
++    pred = pred.t()
++    correct = pred.eq(target.view(1, -1).expand_as(pred))
++    res = []
++    for k in topk:
++        correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
++        res.append(correct_k.mul_(100.0 / batch_size))
++    return res
++
++
++__all__ = ["accuracy"]
+diff --git a/utils/profiler.py b/utils/profiler.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..b5479555b51e559f4f4cf45db586242227466635
+--- /dev/null
++++ b/utils/profiler.py
+@@ -0,0 +1,17 @@
++"""Simple profiling helpers."""
++from __future__ import annotations
++
++import contextlib
++import time
++from typing import Dict
++
++
++@contextlib.contextmanager
++def profile(section: str, stats: Dict[str, float]) -> None:
++    start = time.time()
++    yield
++    elapsed = time.time() - start
++    stats[section] = stats.get(section, 0.0) + elapsed
++
++
++__all__ = ["profile"]
+diff --git a/utils/seed.py b/utils/seed.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..ac61b38a9822f81809bcb9c286cbcdfe5420026d
+--- /dev/null
++++ b/utils/seed.py
+@@ -0,0 +1,31 @@
++"""Reproducibility helpers."""
++from __future__ import annotations
++
++import os
++import random
++from dataclasses import dataclass
++
++import numpy as np
++import torch
++
++
++@dataclass
++class SeedConfig:
++    seed: int = 42
++    deterministic: bool = False
++
++
++def seed_everything(cfg: SeedConfig) -> None:
++    random.seed(cfg.seed)
++    np.random.seed(cfg.seed)
++    torch.manual_seed(cfg.seed)
++    torch.cuda.manual_seed_all(cfg.seed)
++    os.environ["PYTHONHASHSEED"] = str(cfg.seed)
++    if cfg.deterministic:
++        torch.backends.cudnn.deterministic = True
++        torch.backends.cudnn.benchmark = False
++    else:  # pragma: no cover - branch depends on user option
++        torch.backends.cudnn.benchmark = True
++
++
++__all__ = ["seed_everything", "SeedConfig"]
+diff --git a/visualize.py b/visualize.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..a2979302b97b0eebfd959d5a9777ca7090a26f08
+--- /dev/null
++++ b/visualize.py
+@@ -0,0 +1,112 @@
++"""Visualization utilities for reconstructions and embeddings."""
++from __future__ import annotations
++
++import argparse
++from pathlib import Path
++
++import matplotlib.pyplot as plt
++import torch
++from sklearn.manifold import TSNE
++from torchvision.utils import make_grid, save_image
++
++from data.datamodules import DataConfig, HybridDataModule
++from models.hybrid_model import HybridConfig, HybridModel
++from utils.checkpoint import load_checkpoint
++from utils.common import ensure_dir, load_config
++from utils.mask import patchify, unpatchify
++
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description="Visualization for Hybrid SSL")
++    parser.add_argument("--config", type=str, required=True, help="Training config used for pretraining")
++    parser.add_argument("--checkpoint", type=str, required=True, help="Path to trained checkpoint")
++    parser.add_argument("--out", type=str, default=None, help="Output directory")
++    return parser.parse_args()
++
++
++def main() -> None:
++    args = parse_args()
++    cfg = load_config(args.config)
++    dataset_cfg = cfg["dataset"]
++    model_cfg = cfg["model"]
++    loss_cfg = cfg.get("loss", {})
++    train_cfg = cfg["train"]
++
++    out_dir = ensure_dir(args.out or Path(cfg.get("logging", {}).get("out_dir", "runs/visualize")) / "figs")
++
++    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
++
++    dm = HybridDataModule(
++        DataConfig(
++            name=dataset_cfg["name"],
++            root=dataset_cfg["root"],
++            img_size=dataset_cfg["img_size"],
++            batch_size=min(32, train_cfg["batch_size"]),
++            num_workers=train_cfg.get("num_workers", 4),
++            is_pretrain=True,
++        )
++    )
++    dm.setup()
++    loader = dm.train_dataloader()
++    batch = next(iter(loader))
++    batch = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
++
++    hybrid_cfg = HybridConfig(
++        encoder=model_cfg["encoder"],
++        img_size=dataset_cfg["img_size"],
++        patch_size=model_cfg["patch_size"],
++        mask_ratio=model_cfg.get("mask_ratio", 0.75),
++        projector_dim=model_cfg.get("projector_dim", 256),
++        projector_layers=model_cfg.get("projector_layers", 2),
++        temp=model_cfg.get("temp", 0.2),
++        grad_balance=False,
++    )
++    model = HybridModel(hybrid_cfg).to(device)
++    checkpoint = load_checkpoint(args.checkpoint, map_location=device)
++    model.load_state_dict(checkpoint["model"], strict=False)
++    model.eval()
++
++    alpha = loss_cfg.get("alpha_final", 0.5)
++    with torch.no_grad():
++        outputs = model(batch, alpha)
++    recon_patches = outputs["recon"]
++    mask = outputs["mask"].cpu()
++    images = batch["image"].cpu()
++    patch_size = model.decoder.patch_size
++    preds = unpatchify(recon_patches.cpu(), patch_size, images.size(1))
++    grid = make_grid(torch.cat([images, preds], dim=0), nrow=images.size(0))
++    save_image(grid, out_dir / "reconstructions.png")
++
++    # Embedding visualization via t-SNE
++    z = outputs["z1"].cpu().numpy()
++    h = outputs["h1"].cpu().numpy()
++    tsne_z = TSNE(n_components=2, perplexity=min(30, z.shape[0] - 1)).fit_transform(z)
++    tsne_h = TSNE(n_components=2, perplexity=min(30, h.shape[0] - 1)).fit_transform(h)
++    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
++    axes[0].scatter(tsne_z[:, 0], tsne_z[:, 1], s=10, c="tab:blue")
++    axes[0].set_title("Encoder features")
++    axes[1].scatter(tsne_h[:, 0], tsne_h[:, 1], s=10, c="tab:orange")
++    axes[1].set_title("Projector features")
++    plt.tight_layout()
++    fig.savefig(out_dir / "tsne.png")
++    plt.close(fig)
++
++    # Attention map proxy using token magnitude
++    _, tokens = model.encoder(batch["image"], return_tokens=True)
++    if tokens is not None:
++        attn = tokens.norm(dim=-1).view(images.size(0), int(tokens.size(1) ** 0.5), -1)
++        attn = (attn - attn.min()) / (attn.max() - attn.min() + 1e-6)
++        fig, axes = plt.subplots(1, min(4, images.size(0)), figsize=(12, 3))
++        if len(axes.shape) == 0:
++            axes = [axes]
++        for idx, ax in enumerate(axes):
++            heatmap = attn[idx].cpu().numpy()
++            ax.imshow(heatmap, cmap="magma")
++            ax.axis("off")
++        plt.tight_layout()
++        fig.savefig(out_dir / "attention_maps.png")
++        plt.close(fig)
++
++
++if __name__ == "__main__":
++    main()
