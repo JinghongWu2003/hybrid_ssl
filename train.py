@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Dict
 
 import torch
@@ -34,6 +35,7 @@ def to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str,
 def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
+    experiment_name = cfg.get("experiment") or Path(args.config).stem
 
     seed_cfg = SeedConfig(seed=cfg.get("seed", 42), deterministic=args.deterministic)
     seed_everything(seed_cfg)
@@ -72,21 +74,44 @@ def main() -> None:
     )
     model = HybridModel(hybrid_cfg).to(device)
 
+    def _as_float(value: float | str, *, name: str) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:  # pragma: no cover - configuration error
+            raise TypeError(f"Optimizer hyperparameter '{name}' must be a real number, got {value!r}.") from exc
+
+    raw_betas = optim_cfg.get("betas", (0.9, 0.95))
+    if not isinstance(raw_betas, (list, tuple)):
+        raise TypeError(
+            "Optimizer hyperparameter 'betas' must be provided as a sequence of two numbers."
+        )
+    betas = tuple(_as_float(beta, name="betas") for beta in raw_betas)
+    if len(betas) != 2:
+        raise ValueError("Optimizer hyperparameter 'betas' must contain exactly two values.")
+
+    lr = _as_float(optim_cfg.get("lr", 1e-4), name="lr")
+    final_lr = _as_float(optim_cfg.get("final_lr", 1e-6), name="final_lr")
+    weight_decay = _as_float(optim_cfg.get("weight_decay", 0.05), name="weight_decay")
+
     optimizer = AdamW(
         model.parameters(),
-        lr=optim_cfg.get("lr", 1e-4),
-        betas=tuple(optim_cfg.get("betas", (0.9, 0.95))),
-        weight_decay=optim_cfg.get("weight_decay", 0.05),
+        lr=lr,
+        betas=betas,
+        weight_decay=weight_decay,
     )
     scaler = GradScaler(enabled=train_cfg.get("amp", True) and device.type == "cuda")
 
     epochs = train_cfg["epochs"]
     steps_per_epoch = len(train_loader)
+    warmup_epochs = int(optim_cfg.get("warmup_epochs", 0))
+    start_warmup_lr = _as_float(optim_cfg.get("warmup_start_lr", 0.0), name="warmup_start_lr")
     lr_schedule = cosine_scheduler(
-        base_value=optim_cfg.get("lr", 1e-4),
-        final_value=optim_cfg.get("final_lr", 1e-6),
+        base_value=lr,
+        final_value=final_lr,
         epochs=epochs,
         steps_per_epoch=steps_per_epoch,
+        warmup_epochs=max(0, warmup_epochs),
+        start_warmup_value=start_warmup_lr,
     )
     alpha_scheduler = AlphaScheduler(
         AlphaSchedulerConfig(
@@ -99,17 +124,24 @@ def main() -> None:
     logger = Logger(log_dir, use_tensorboard=log_cfg.get("tensorboard", True), use_wandb=args.wandb or log_cfg.get("wandb", False))
 
     alpha_values = []
+    save_best = bool(train_cfg.get("save_best", False))
     best_loss = float("inf")
     global_step = 0
+    grad_clip_value = None
+    if train_cfg.get("grad_clip") is not None:
+        grad_clip_value = _as_float(train_cfg.get("grad_clip"), name="grad_clip")
 
     for epoch in range(epochs):
         model.train()
         alpha = alpha_scheduler.value(epoch)
         epoch_loss = 0.0
         progress = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False)
+        current_lr = lr_schedule[min(global_step, len(lr_schedule) - 1)] if lr_schedule else lr
+        num_batches = 0
         for step, batch in enumerate(progress):
             batch = to_device(batch, device)
             lr = lr_schedule[global_step]
+            current_lr = lr
             for pg in optimizer.param_groups:
                 pg["lr"] = lr
             with autocast(enabled=train_cfg.get("amp", True) and device.type == "cuda"):
@@ -117,9 +149,9 @@ def main() -> None:
                 loss = outputs["loss_total"]
             optimizer.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
-            if train_cfg.get("grad_clip"):
+            if grad_clip_value is not None:
                 scaler.unscale_(optimizer)
-                clip_grad_norm_(model.parameters(), train_cfg["grad_clip"])
+                clip_grad_norm_(model.parameters(), grad_clip_value)
             scaler.step(optimizer)
             scaler.update()
 
@@ -135,20 +167,22 @@ def main() -> None:
                 step=global_step,
             )
             global_step += 1
-        avg_loss = epoch_loss / max(1, steps_per_epoch)
+            num_batches += 1
+        avg_loss = epoch_loss / max(1, num_batches)
         alpha_values.append(alpha)
-        checkpoint_path = log_dir / f"epoch_{epoch:03d}.pt"
-        save_checkpoint(
+        logger.log_scalars(
             {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scaler": scaler.state_dict(),
-                "epoch": epoch,
-                "config": cfg,
+                "train/epoch_loss": avg_loss,
+                "train/epoch_alpha": alpha,
             },
-            checkpoint_path,
+            step=epoch,
         )
-        if avg_loss < best_loss:
+        print(
+            f"[Epoch {epoch + 1}/{epochs}] loss_total={avg_loss:.4f} "
+            f"alpha={alpha:.4f} lr={current_lr:.4e}",
+            flush=True,
+        )
+        if save_best and avg_loss < best_loss:
             best_loss = avg_loss
             save_checkpoint(
                 {
@@ -160,6 +194,15 @@ def main() -> None:
                 },
                 log_dir / "best.pt",
             )
+
+    final_checkpoint = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scaler": scaler.state_dict(),
+        "epoch": epochs - 1,
+        "config": cfg,
+    }
+    save_checkpoint(final_checkpoint, log_dir / f"{experiment_name}.pt")
 
     # Save alpha schedule plot
     try:

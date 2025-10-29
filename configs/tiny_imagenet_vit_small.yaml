@@ -1,4 +1,4 @@
-experiment: "hybrid_tiny_vits"
+experiment: "pretrain50"
 dataset:
   name: "tiny_imagenet"
   root: "./data/tiny-imagenet-200"
@@ -18,6 +18,8 @@ loss:
 optim:
   lr: 2e-4
   weight_decay: 0.05
+  warmup_epochs: 10
+  warmup_start_lr: 1e-5
 train:
   epochs: 100
   batch_size: 128
@@ -25,6 +27,7 @@ train:
   grad_clip: 1.0
   grad_balance: false
   num_workers: 8
+  save_best: false
 logging:
   out_dir: "runs/tiny_vits"
   tensorboard: true

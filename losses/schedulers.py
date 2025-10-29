@@ -31,11 +31,30 @@ class AlphaScheduler:
         return self.cfg.final_alpha + (0.6 - self.cfg.final_alpha) * cosine
 
 
-def cosine_scheduler(base_value: float, final_value: float, epochs: int, steps_per_epoch: int) -> List[float]:
-    values = []
-    for i in range(epochs * steps_per_epoch):
-        progress = i / max(1, epochs * steps_per_epoch - 1)
-        values.append(final_value + 0.5 * (base_value - final_value) * (1 + math.cos(math.pi * progress)))
+def cosine_scheduler(
+    base_value: float,
+    final_value: float,
+    epochs: int,
+    steps_per_epoch: int,
+    warmup_epochs: int = 0,
+    start_warmup_value: float = 0.0,
+) -> List[float]:
+    total_steps = max(0, epochs * steps_per_epoch)
+    warmup_steps = max(0, min(warmup_epochs * steps_per_epoch, total_steps))
+    values: List[float] = []
+
+    if warmup_steps > 0:
+        for i in range(warmup_steps):
+            progress = i / max(1, warmup_steps - 1)
+            values.append(start_warmup_value + progress * (base_value - start_warmup_value))
+
+    remaining_steps = total_steps - warmup_steps
+    if remaining_steps > 0:
+        for i in range(remaining_steps):
+            progress = i / max(1, remaining_steps - 1)
+            value = final_value + 0.5 * (base_value - final_value) * (1 + math.cos(math.pi * progress))
+            values.append(value)
+
     return values
 
 
