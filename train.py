@@ -129,9 +129,11 @@ def main() -> None:
         alpha = alpha_scheduler.value(epoch)
         epoch_loss = 0.0
         progress = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False)
+        current_lr = lr_schedule[min(global_step, len(lr_schedule) - 1)] if lr_schedule else lr
         for step, batch in enumerate(progress):
             batch = to_device(batch, device)
             lr = lr_schedule[global_step]
+            current_lr = lr
             for pg in optimizer.param_groups:
                 pg["lr"] = lr
             with autocast(enabled=train_cfg.get("amp", True) and device.type == "cuda"):
@@ -159,6 +161,18 @@ def main() -> None:
             global_step += 1
         avg_loss = epoch_loss / max(1, steps_per_epoch)
         alpha_values.append(alpha)
+        logger.log_scalars(
+            {
+                "train/epoch_loss": avg_loss,
+                "train/epoch_alpha": alpha,
+            },
+            step=epoch,
+        )
+        print(
+            f"[Epoch {epoch + 1}/{epochs}] loss_total={avg_loss:.4f} "
+            f"alpha={alpha:.4f} lr={current_lr:.4e}",
+            flush=True,
+        )
         checkpoint_path = log_dir / f"epoch_{epoch:03d}.pt"
         save_checkpoint(
             {
