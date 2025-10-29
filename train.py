@@ -175,6 +175,19 @@ def main() -> None:
             f"alpha={alpha:.4f} lr={current_lr:.4e}",
             flush=True,
         )
+        checkpoint_path = log_dir / f"epoch_{epoch:03d}.pt"
+        save_checkpoint(
+            {
+                "train/epoch_loss": avg_loss,
+                "train/epoch_alpha": alpha,
+            },
+            step=epoch,
+        )
+        print(
+            f"[Epoch {epoch + 1}/{epochs}] loss_total={avg_loss:.4f} "
+            f"alpha={alpha:.4f} lr={current_lr:.4e}",
+            flush=True,
+        )
         if avg_loss < best_loss:
             best_loss = avg_loss
             save_checkpoint(
