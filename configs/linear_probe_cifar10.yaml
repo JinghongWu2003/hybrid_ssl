@@ -1,0 +1,18 @@
+experiment: "lp_cifar10_from_in100"
+dataset:
+  name: "cifar10"
+  root: "./data/cifar10"
+  img_size: 32
+  num_classes: 10
+probe:
+  head_dim: 768
+  epochs: 40
+  lr: 5e-3
+  weight_decay: 1e-4
+  batch_size: 256
+  num_workers: 8
+checkpoint:
+  encoder_ckpt: "checkpoints/in100_vitb_best.pt"
+logging:
+  out_dir: "runs/lp_cifar10"
+  tensorboard: true

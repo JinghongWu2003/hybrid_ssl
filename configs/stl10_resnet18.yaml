@@ -1,0 +1,31 @@
+experiment: "hybrid_stl10_rn18"
+dataset:
+  name: "stl10"
+  root: "./data/stl10"
+  img_size: 96
+  num_classes: 10
+model:
+  encoder: "resnet18"
+  patch_size: 16
+  mask_ratio: 0.7
+  projector_dim: 128
+  projector_layers: 3
+  temp: 0.2
+loss:
+  alpha_schedule: "cosine"
+  alpha_final: 0.55
+  alpha_warmup_epochs: 15
+optim:
+  lr: 1e-3
+  weight_decay: 0.0005
+train:
+  epochs: 200
+  batch_size: 256
+  amp: true
+  grad_clip: 1.0
+  grad_balance: true
+  num_workers: 8
+logging:
+  out_dir: "runs/stl10_rn18"
+  tensorboard: true
+  wandb: false

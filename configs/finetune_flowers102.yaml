@@ -1,0 +1,19 @@
+experiment: "finetune_flowers102"
+dataset:
+  name: "flowers102"
+  root: "./data/flowers102"
+  img_size: 224
+  num_classes: 102
+finetune:
+  epochs: 60
+  lr_backbone: 5e-5
+  lr_head: 5e-3
+  weight_decay: 1e-4
+  batch_size: 64
+  freeze_layers: null
+  num_workers: 8
+checkpoint:
+  encoder_ckpt: "checkpoints/in100_vitb_best.pt"
+logging:
+  out_dir: "runs/finetune_flowers102"
+  tensorboard: true
