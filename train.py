@@ -72,19 +72,38 @@ def main() -> None:
     )
     model = HybridModel(hybrid_cfg).to(device)
 
+    def _as_float(value: float | str, *, name: str) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:  # pragma: no cover - configuration error
+            raise TypeError(f"Optimizer hyperparameter '{name}' must be a real number, got {value!r}.") from exc
+
+    raw_betas = optim_cfg.get("betas", (0.9, 0.95))
+    if not isinstance(raw_betas, (list, tuple)):
+        raise TypeError(
+            "Optimizer hyperparameter 'betas' must be provided as a sequence of two numbers."
+        )
+    betas = tuple(_as_float(beta, name="betas") for beta in raw_betas)
+    if len(betas) != 2:
+        raise ValueError("Optimizer hyperparameter 'betas' must contain exactly two values.")
+
+    lr = _as_float(optim_cfg.get("lr", 1e-4), name="lr")
+    final_lr = _as_float(optim_cfg.get("final_lr", 1e-6), name="final_lr")
+    weight_decay = _as_float(optim_cfg.get("weight_decay", 0.05), name="weight_decay")
+
     optimizer = AdamW(
         model.parameters(),
-        lr=optim_cfg.get("lr", 1e-4),
-        betas=tuple(optim_cfg.get("betas", (0.9, 0.95))),
-        weight_decay=optim_cfg.get("weight_decay", 0.05),
+        lr=lr,
+        betas=betas,
+        weight_decay=weight_decay,
     )
     scaler = GradScaler(enabled=train_cfg.get("amp", True) and device.type == "cuda")
 
     epochs = train_cfg["epochs"]
     steps_per_epoch = len(train_loader)
     lr_schedule = cosine_scheduler(
-        base_value=optim_cfg.get("lr", 1e-4),
-        final_value=optim_cfg.get("final_lr", 1e-6),
+        base_value=lr,
+        final_value=final_lr,
         epochs=epochs,
         steps_per_epoch=steps_per_epoch,
     )
@@ -101,6 +120,9 @@ def main() -> None:
     alpha_values = []
     best_loss = float("inf")
     global_step = 0
+    grad_clip_value = None
+    if train_cfg.get("grad_clip") is not None:
+        grad_clip_value = _as_float(train_cfg.get("grad_clip"), name="grad_clip")
 
     for epoch in range(epochs):
         model.train()
@@ -117,9 +139,9 @@ def main() -> None:
                 loss = outputs["loss_total"]
             optimizer.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
-            if train_cfg.get("grad_clip"):
+            if grad_clip_value is not None:
                 scaler.unscale_(optimizer)
-                clip_grad_norm_(model.parameters(), train_cfg["grad_clip"])
+                clip_grad_norm_(model.parameters(), grad_clip_value)
             scaler.step(optimizer)
             scaler.update()
 
