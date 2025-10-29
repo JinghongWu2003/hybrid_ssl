@@ -103,11 +103,15 @@ def main() -> None:
 
     epochs = train_cfg["epochs"]
     steps_per_epoch = len(train_loader)
+    warmup_epochs = int(optim_cfg.get("warmup_epochs", 0))
+    start_warmup_lr = _as_float(optim_cfg.get("warmup_start_lr", 0.0), name="warmup_start_lr")
     lr_schedule = cosine_scheduler(
         base_value=lr,
         final_value=final_lr,
         epochs=epochs,
         steps_per_epoch=steps_per_epoch,
+        warmup_epochs=max(0, warmup_epochs),
+        start_warmup_value=start_warmup_lr,
     )
     alpha_scheduler = AlphaScheduler(
         AlphaSchedulerConfig(
@@ -120,6 +124,7 @@ def main() -> None:
     logger = Logger(log_dir, use_tensorboard=log_cfg.get("tensorboard", True), use_wandb=args.wandb or log_cfg.get("wandb", False))
 
     alpha_values = []
+    save_best = bool(train_cfg.get("save_best", False))
     best_loss = float("inf")
     global_step = 0
     grad_clip_value = None
@@ -132,6 +137,7 @@ def main() -> None:
         epoch_loss = 0.0
         progress = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False)
         current_lr = lr_schedule[min(global_step, len(lr_schedule) - 1)] if lr_schedule else lr
+        num_batches = 0
         for step, batch in enumerate(progress):
             batch = to_device(batch, device)
             lr = lr_schedule[global_step]
@@ -161,7 +167,8 @@ def main() -> None:
                 step=global_step,
             )
             global_step += 1
-        avg_loss = epoch_loss / max(1, steps_per_epoch)
+            num_batches += 1
+        avg_loss = epoch_loss / max(1, num_batches)
         alpha_values.append(alpha)
         logger.log_scalars(
             {
@@ -175,20 +182,7 @@ def main() -> None:
             f"alpha={alpha:.4f} lr={current_lr:.4e}",
             flush=True,
         )
-        checkpoint_path = log_dir / f"epoch_{epoch:03d}.pt"
-        save_checkpoint(
-            {
-                "train/epoch_loss": avg_loss,
-                "train/epoch_alpha": alpha,
-            },
-            step=epoch,
-        )
-        print(
-            f"[Epoch {epoch + 1}/{epochs}] loss_total={avg_loss:.4f} "
-            f"alpha={alpha:.4f} lr={current_lr:.4e}",
-            flush=True,
-        )
-        if avg_loss < best_loss:
+        if save_best and avg_loss < best_loss:
             best_loss = avg_loss
             save_checkpoint(
                 {
