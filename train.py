@@ -70,6 +70,10 @@ def main() -> None:
         projector_dim=model_cfg.get("projector_dim", 256),
         projector_layers=model_cfg.get("projector_layers", 2),
         temp=model_cfg.get("temp", 0.2),
+        decoder_dim=model_cfg.get("decoder_dim", 512),
+        decoder_depth=model_cfg.get("decoder_depth", 4),
+        decoder_heads=model_cfg.get("decoder_heads", 8),
+        norm_pix_loss=loss_cfg.get("norm_pix_loss", True),
         grad_balance=train_cfg.get("grad_balance", False),
     )
     model = HybridModel(hybrid_cfg).to(device)

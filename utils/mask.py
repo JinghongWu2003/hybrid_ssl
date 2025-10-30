@@ -1,9 +1,6 @@
 """Masking utilities for MAE."""
 from __future__ import annotations
 
-import math
-from typing import Tuple
-
 import torch
 
 
@@ -23,22 +20,30 @@ def sample_mask(batch: int, num_patches_: int, mask_ratio: float, device: torch.
     return mask
 
 
-def patchify(images: torch.Tensor, patch_size: int) -> torch.Tensor:
-    """Convert images to patch sequences."""
-    B, C, H, W = images.shape
-    assert H == W and H % patch_size == 0
-    h = w = H // patch_size
-    x = images.reshape(B, C, h, patch_size, w, patch_size)
-    x = x.permute(0, 2, 4, 3, 5, 1).reshape(B, h * w, patch_size * patch_size * C)
-    return x
+def random_masking(x: torch.Tensor, mask_ratio: float) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Randomly mask a portion of tokens following the MAE strategy."""
+
+    if x.dim() != 3:
+        raise ValueError(f"Expected token tensor of shape (B, N, C), got {tuple(x.shape)}")
+    B, N, C = x.shape
+    if not 0.0 <= mask_ratio < 1.0:
+        raise ValueError(f"mask_ratio must be in [0, 1), got {mask_ratio}")
+
+    len_keep = max(1, int(N * (1 - mask_ratio)))
+
+    noise = torch.rand(B, N, device=x.device)  # noise in [0, 1)
+    ids_shuffle = torch.argsort(noise, dim=1)
+    ids_restore = torch.argsort(ids_shuffle, dim=1)
+
+    ids_keep = ids_shuffle[:, :len_keep]
+    ids_keep_expanded = ids_keep.unsqueeze(-1).expand(-1, -1, C)
+    x_masked = torch.gather(x, dim=1, index=ids_keep_expanded)
+
+    mask = torch.ones(B, N, device=x.device, dtype=x.dtype)
+    mask[:, :len_keep] = 0
+    mask = torch.gather(mask, dim=1, index=ids_restore)
+
+    return x_masked, mask, ids_restore
 
 
-def unpatchify(patches: torch.Tensor, patch_size: int, channels: int) -> torch.Tensor:
-    B, N, L = patches.shape
-    grid = int(math.sqrt(N))
-    x = patches.reshape(B, grid, grid, patch_size, patch_size, channels)
-    x = x.permute(0, 5, 1, 3, 2, 4).reshape(B, channels, grid * patch_size, grid * patch_size)
-    return x
-
-
-__all__ = ["num_patches", "sample_mask", "patchify", "unpatchify"]
+__all__ = ["num_patches", "sample_mask", "random_masking"]
