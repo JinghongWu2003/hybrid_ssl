@@ -14,6 +14,7 @@ class AlphaSchedulerConfig:
     warmup_epochs: int
     final_alpha: float
     total_epochs: int
+    start_alpha: float = 1.0
 
 
 class AlphaScheduler:
@@ -21,14 +22,23 @@ class AlphaScheduler:
         self.cfg = cfg
 
     def value(self, epoch: int) -> float:
-        if epoch < self.cfg.warmup_epochs:
-            start = 1.0
-            end = max(self.cfg.final_alpha, 0.0)
-            progress = epoch / max(1, self.cfg.warmup_epochs)
-            return start + (0.6 - start) * progress  # linear to 0.6 during warmup
-        progress = (epoch - self.cfg.warmup_epochs) / max(1, self.cfg.total_epochs - self.cfg.warmup_epochs)
+        warmup_epochs = max(0, self.cfg.warmup_epochs)
+        start = getattr(self.cfg, "start_alpha", 1.0)
+        end = self.cfg.final_alpha
+
+        if warmup_epochs > 0 and epoch < warmup_epochs:
+            progress = epoch / warmup_epochs
+            return start + (end - start) * progress
+
+        remaining_epochs = max(0, self.cfg.total_epochs - warmup_epochs)
+        if remaining_epochs == 0:
+            return end
+
+        progress = (epoch - warmup_epochs) / remaining_epochs
+        progress = min(max(progress, 0.0), 1.0)
         cosine = 0.5 * (1 + math.cos(math.pi * progress))
-        return self.cfg.final_alpha + (0.6 - self.cfg.final_alpha) * cosine
+        start_cosine = end if warmup_epochs > 0 else start
+        return end + (start_cosine - end) * cosine
 
 
 def cosine_scheduler(
