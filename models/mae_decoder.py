@@ -29,6 +29,19 @@ class MAEDecoder(nn.Module):
         self.output = nn.Linear(decoder_dim, patch_size * patch_size * img_channels)
         nn.init.trunc_normal_(self.mask_token, std=0.02)
 
+    def set_patch_size(self, patch_size: int) -> None:
+        """Update decoder output head to match a new patch size."""
+        if patch_size == self.patch_size:
+            return
+        self.patch_size = patch_size
+        out_features = patch_size * patch_size * self.img_channels
+        new_output = nn.Linear(self.output.in_features, out_features)
+        nn.init.xavier_uniform_(new_output.weight)
+        if new_output.bias is not None:
+            nn.init.zeros_(new_output.bias)
+        new_output = new_output.to(self.output.weight.device)
+        self.output = new_output
+
     def forward(self, tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """Reconstruct patches; mask selects which predictions are used for loss."""
         # tokens expected shape: (B, N_patches, encoder_dim)

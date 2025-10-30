@@ -74,14 +74,14 @@ class HybridModel(nn.Module):
         if tokens is None:
             raise RuntimeError("Encoder must return patch tokens for MAE branch.")
         B, N, _ = tokens.shape
-        mask = sample_mask(B, N, self.mask_ratio, mae_image.device)
-        preds = self.decoder(tokens, mask)
-
         grid = int(math.sqrt(N))
         inferred_patch = self.patch_size if grid == 0 else self.encoder_input_patch_size(mae_image.size(-1), grid)
         if inferred_patch != self.patch_size:
             # Adjust decoder patch size for non-square tokenization (e.g., ResNet)
-            self.decoder.patch_size = inferred_patch
+            self.patch_size = inferred_patch
+            self.decoder.set_patch_size(inferred_patch)
+        mask = sample_mask(B, N, self.mask_ratio, mae_image.device)
+        preds = self.decoder(tokens, mask)
         loss_rec = self.mae_loss(mae_image, preds, mask, self.decoder.patch_size)
 
         losses = {"rec": loss_rec, "contrast": loss_contrast}
