@@ -1,9 +1,8 @@
 """Hybrid MAE + SimCLR model."""
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Dict
 
 import torch
 from torch import nn
@@ -11,7 +10,7 @@ from torch import nn
 from losses.info_nce import InfoNCELoss
 from losses.mae_reconstruction import MAELoss
 from losses.schedulers import gradient_balance
-from utils.mask import sample_mask
+from utils.mask import random_masking
 
 from .mae_decoder import MAEDecoder
 from .projector import Projector
@@ -28,6 +27,10 @@ class HybridConfig:
     projector_dim: int
     projector_layers: int
     temp: float
+    decoder_dim: int = 512
+    decoder_depth: int = 4
+    decoder_heads: int = 8
+    norm_pix_loss: bool = True
     grad_balance: bool = False
 
 
@@ -57,9 +60,13 @@ class HybridModel(nn.Module):
         self.decoder = MAEDecoder(
             encoder_dim=encoder_dim,
             patch_size=self.patch_size,
+            img_size=cfg.img_size,
+            decoder_dim=cfg.decoder_dim,
+            depth=cfg.decoder_depth,
+            num_heads=cfg.decoder_heads,
         )
         self.info_nce = InfoNCELoss(cfg.temp)
-        self.mae_loss = MAELoss()
+        self.mae_loss = MAELoss(norm_pix_loss=cfg.norm_pix_loss)
         self.grad_balance = cfg.grad_balance
 
     def forward(self, batch: Dict[str, torch.Tensor], alpha: float) -> Dict[str, torch.Tensor]:
@@ -73,23 +80,20 @@ class HybridModel(nn.Module):
         _, tokens = self.encoder(mae_image, return_tokens=True)
         if tokens is None:
             raise RuntimeError("Encoder must return patch tokens for MAE branch.")
-        B, N, _ = tokens.shape
-        mask = sample_mask(B, N, self.mask_ratio, mae_image.device)
-        preds = self.decoder(tokens, mask)
 
-        grid = int(math.sqrt(N))
-        inferred_patch = self.patch_size if grid == 0 else self.encoder_input_patch_size(mae_image.size(-1), grid)
-        if inferred_patch != self.patch_size:
-            # Adjust decoder patch size for non-square tokenization (e.g., ResNet)
-            self.decoder.patch_size = inferred_patch
+        visible_tokens, mask, ids_restore = random_masking(tokens, self.mask_ratio)
+        preds = self.decoder(visible_tokens, mask, ids_restore)
+
         loss_rec = self.mae_loss(mae_image, preds, mask, self.decoder.patch_size)
 
         losses = {"rec": loss_rec, "contrast": loss_contrast}
+        loss_rec_for_total = loss_rec
+        loss_contrast_for_total = loss_contrast
         if self.grad_balance:
             balanced = gradient_balance({k: v for k, v in losses.items()}, self.parameters())
-            loss_rec = balanced["rec"]
-            loss_contrast = balanced["contrast"]
-        loss_total = alpha * loss_rec + (1 - alpha) * loss_contrast
+            loss_rec_for_total = balanced["rec"]
+            loss_contrast_for_total = balanced["contrast"]
+        loss_total = alpha * loss_rec_for_total + (1 - alpha) * loss_contrast_for_total
 
         return {
             "z1": z1,
@@ -97,19 +101,11 @@ class HybridModel(nn.Module):
             "h1": h1,
             "h2": h2,
             "recon": preds,
-            "mask": mask,
+            "mask": (mask > 0.5) if mask.dtype != torch.bool else mask,
+            "ids_restore": ids_restore,
             "loss_rec": loss_rec.detach(),
             "loss_contrast": loss_contrast.detach(),
             "loss_total": loss_total,
         }
-
-    @staticmethod
-    def encoder_input_patch_size(img_size: int, grid: int) -> int:
-        if grid == 0:
-            return img_size
-        if img_size % grid != 0:
-            raise ValueError("Image size must be divisible by token grid size")
-        return img_size // grid
-
 
 __all__ = ["HybridModel", "HybridConfig"]

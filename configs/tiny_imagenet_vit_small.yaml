@@ -11,10 +11,14 @@ model:
   projector_dim: 128
   projector_layers: 2
   temp: 0.2
+  decoder_dim: 512
+  decoder_depth: 6
+  decoder_heads: 8
 loss:
   alpha_schedule: "cosine"
   alpha_final: 0.6
   alpha_warmup_epochs: 10
+  norm_pix_loss: true
 optim:
   lr: 2e-4
   weight_decay: 0.05

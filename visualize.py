@@ -13,7 +13,7 @@ from data.datamodules import DataConfig, HybridDataModule
 from models.hybrid_model import HybridConfig, HybridModel
 from utils.checkpoint import load_checkpoint
 from utils.common import ensure_dir, load_config
-from utils.mask import patchify, unpatchify
+from losses.mae_reconstruction import patchify, unpatchify
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,6 +59,10 @@ def main() -> None:
         projector_dim=model_cfg.get("projector_dim", 256),
         projector_layers=model_cfg.get("projector_layers", 2),
         temp=model_cfg.get("temp", 0.2),
+        decoder_dim=model_cfg.get("decoder_dim", 512),
+        decoder_depth=model_cfg.get("decoder_depth", 4),
+        decoder_heads=model_cfg.get("decoder_heads", 8),
+        norm_pix_loss=loss_cfg.get("norm_pix_loss", True),
         grad_balance=False,
     )
     model = HybridModel(hybrid_cfg).to(device)
